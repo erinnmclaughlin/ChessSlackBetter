@@ -103,9 +103,11 @@ public sealed class Game
                 return false;
             }
 
-            if (edit.Piece.Type == PieceType.Pawn && Square.Rank(edit.Square) is 0 or 7)
+            // A pawn on its own back rank can still move forward; one on its promotion rank can't move at all.
+            var promotionRank = edit.Piece.Color == PieceColor.White ? 7 : 0;
+            if (edit.Piece.Type == PieceType.Pawn && Square.Rank(edit.Square) == promotionRank)
             {
-                error = "Pawns can't be placed on the first or last rank.";
+                error = "Pawns can't be placed on the rank where they would promote.";
                 return false;
             }
         }
