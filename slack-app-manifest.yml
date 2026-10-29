@@ -1,0 +1,36 @@
+# Create the Slack app from this manifest: https://api.slack.com/apps -> Create New App -> From an app manifest.
+# Replace https://YOUR-PUBLIC-URL with the public HTTPS address of the bot (e.g. your ngrok URL).
+display_information:
+  name: ChessBot
+  description: Play chess against your coworkers in Slack threads.
+  background_color: "#b58863"
+features:
+  bot_user:
+    display_name: chessbot
+    always_online: true
+oauth_config:
+  scopes:
+    bot:
+      - app_mentions:read
+      - chat:write
+      - users:read
+      # Lets players type moves in a game thread without @-mentioning the bot.
+      - channels:history
+      - groups:history
+      - mpim:history
+      - im:history
+settings:
+  event_subscriptions:
+    request_url: https://YOUR-PUBLIC-URL/slack/events
+    bot_events:
+      - app_mention
+      - message.channels
+      - message.groups
+      - message.mpim
+      - message.im
+  interactivity:
+    is_enabled: true
+    request_url: https://YOUR-PUBLIC-URL/slack/interactions
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false

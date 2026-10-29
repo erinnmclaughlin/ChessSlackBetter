@@ -480,3 +480,8 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# Local game databases
+*.db
+*.db-shm
+*.db-wal
