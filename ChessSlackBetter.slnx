@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/ChessSlackBetter.Bot/ChessSlackBetter.Bot.csproj" />
+    <Project Path="src/ChessSlackBetter.Chess/ChessSlackBetter.Chess.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/ChessSlackBetter.Bot.Tests/ChessSlackBetter.Bot.Tests.csproj" />
+    <Project Path="tests/ChessSlackBetter.Chess.Tests/ChessSlackBetter.Chess.Tests.csproj" />
+  </Folder>
+</Solution>
