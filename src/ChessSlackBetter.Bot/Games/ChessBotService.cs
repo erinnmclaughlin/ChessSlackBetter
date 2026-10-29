@@ -44,7 +44,7 @@ public sealed class ChessBotService(
                 await EphemeralAsync(message, Messages.HelpText, ct);
                 return;
             case UnknownCommand unknown:
-                await EphemeralAsync(message, $"Sorry, I don't understand `{unknown.Text}`. Try `@chessbot help`.", ct);
+                await EphemeralAsync(message, $"Sorry, I don't understand `{unknown.Text}`. Try `@ChessBetterBot help`.", ct);
                 return;
             case ChallengeCommand challenge:
                 await ChallengeAsync(message, challenge, botId, ct);
@@ -64,7 +64,7 @@ public sealed class ChessBotService(
         var record = message.ThreadTs is null ? null : await games.GetAsync(message.ChannelId, message.ThreadTs, ct);
         if (record is null)
         {
-            await EphemeralAsync(message, "There's no game in this thread. Start one with `@chessbot challenge @someone`.", ct);
+            await EphemeralAsync(message, "There's no game in this thread. Start one with `@ChessBetterBot challenge @someone`.", ct);
             return;
         }
 
@@ -225,7 +225,7 @@ public sealed class ChessBotService(
         if (record.State != GameState.Challenged)
         {
             await reply(record.State == GameState.Active
-                ? "The game has already started. Use `@chessbot resign` or `@chessbot abort` instead."
+                ? "The game has already started. Use `@ChessBetterBot resign` or `@ChessBetterBot abort` instead."
                 : "This challenge has already been answered.");
             return;
         }
@@ -397,7 +397,7 @@ public sealed class ChessBotService(
         var open = await games.GetOpenGamesAsync(message.UserId, ct);
         if (open.Count == 0)
         {
-            await EphemeralAsync(message, "You have no open games. Start one with `@chessbot challenge @someone`.", ct);
+            await EphemeralAsync(message, "You have no open games. Start one with `@ChessBetterBot challenge @someone`.", ct);
             return;
         }
 
@@ -484,7 +484,7 @@ public sealed class ChessBotService(
         {
             GameState.Challenged => $"The game hasn't started — <@{record.OpponentId}> still needs to accept.",
             GameState.Declined => "That challenge was declined.",
-            GameState.Finished => "This game is over. Start a new one with `@chessbot challenge @someone`.",
+            GameState.Finished => "This game is over. Start a new one with `@ChessBetterBot challenge @someone`.",
             _ when !record.IsPlayer(userId) => "You're not playing in this game — but feel free to watch!",
             _ => null,
         };
