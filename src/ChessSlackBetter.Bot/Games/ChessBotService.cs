@@ -1,4 +1,5 @@
 using System.Text;
+using ChessSlackBetter.Bot.Dice;
 using ChessSlackBetter.Bot.Slack;
 using ChessSlackBetter.Chess;
 using Microsoft.Extensions.Options;
@@ -11,10 +12,12 @@ public sealed record IncomingMessage(string ChannelId, string UserId, string Tex
 /// <summary>A button click. <see cref="ThreadTs"/> is the game thread the clicked message belongs to.</summary>
 public sealed record IncomingAction(string ActionId, string UserId, string ChannelId, string ThreadTs);
 
-public sealed class ChessBotService(
+public sealed partial class ChessBotService(
     ISlackApi slack,
     IGameRepository games,
     IAnalysisLinks analysis,
+    IDiceJudge judge,
+    IDiceRoller dice,
     IOptions<ChessBotOptions> options,
     TimeProvider time,
     ILogger<ChessBotService> logger)
@@ -43,8 +46,8 @@ public sealed class ChessBotService(
             case HelpCommand:
                 await EphemeralAsync(message, Messages.HelpText, ct);
                 return;
-            case UnknownCommand unknown:
-                await EphemeralAsync(message, $"Sorry, I don't understand `{unknown.Text}`. Try `@ChessBetterBot help`.", ct);
+            case UnknownCommand unknown when message.ThreadTs is null:
+                await EphemeralAsync(message, UnknownText(unknown), ct);
                 return;
             case ChallengeCommand challenge:
                 await ChallengeAsync(message, challenge, botId, ct);
@@ -55,8 +58,8 @@ public sealed class ChessBotService(
             case StatsCommand stats:
                 await StatsAsync(message, stats.UserId ?? message.UserId, ct);
                 return;
-            case LeaderboardCommand:
-                await LeaderboardAsync(message, ct);
+            case LeaderboardCommand leaderboard:
+                await LeaderboardAsync(message, leaderboard.Mode, ct);
                 return;
         }
 
@@ -74,8 +77,27 @@ public sealed class ChessBotService(
             case AcceptCommand:
                 await AcceptAsync(record, message.UserId, reply, ct);
                 break;
+            case DeclineCommand when record.Dice.Pending?.RequesterId == message.UserId:
+            case CancelRollCommand:
+                await CancelRollAsync(record, message.UserId, reply, ct);
+                break;
             case DeclineCommand:
                 await DeclineAsync(record, message.UserId, reply, ct);
+                break;
+            case RollRequestCommand roll:
+                await RequestRollAsync(record, message.UserId, roll.Request, reply, ct);
+                break;
+            case UnknownCommand unknown when record.Mode == GameMode.DiceRoll && record.State == GameState.Active:
+                await RequestRollAsync(record, message.UserId, unknown.Text, reply, ct);
+                break;
+            case UnknownCommand unknown:
+                await reply(UnknownText(unknown));
+                break;
+            case ConfirmRollCommand:
+                await ConfirmRollAsync(record, message.UserId, reply, ct);
+                break;
+            case VetoCommand:
+                await VetoAsync(record, message.UserId, reply, ct);
                 break;
             case MoveCommand move:
                 await MoveAsync(record, message.UserId, move.Move, reply, ct);
@@ -128,8 +150,20 @@ public sealed class ChessBotService(
             case ActionIds.DeclineDraw:
                 await DeclineDrawAsync(record, action.UserId, reply, ct);
                 break;
+            case ActionIds.Roll:
+                await ConfirmRollAsync(record, action.UserId, reply, ct);
+                break;
+            case ActionIds.CancelRoll:
+                await CancelRollAsync(record, action.UserId, reply, ct);
+                break;
+            case ActionIds.Veto:
+                await VetoAsync(record, action.UserId, reply, ct);
+                break;
         }
     }
+
+    private static string UnknownText(UnknownCommand unknown) =>
+        $"Sorry, I don't understand `{unknown.Text}`. Try `@ChessBetterBot help`.";
 
     /// <summary>Lets players type "e4" in the game thread without mentioning the bot.</summary>
     private async Task HandleUnaddressedThreadMessageAsync(IncomingMessage message, string botId, CancellationToken ct)
@@ -141,7 +175,9 @@ public sealed class ChessBotService(
         }
 
         var text = message.Text.Trim();
-        if (!Notation.LooksLikeMove(text))
+        var command = CommandParser.Parse(text);
+        var isDiceAnswer = command is ConfirmRollCommand or CancelRollCommand or VetoCommand;
+        if (!Notation.LooksLikeMove(text) && !isDiceAnswer)
         {
             return;
         }
@@ -152,7 +188,33 @@ public sealed class ChessBotService(
             return;
         }
 
-        await MoveAsync(record, message.UserId, text, t => slack.PostEphemeralAsync(message.ChannelId, message.UserId, record.ThreadTs, t, ct), ct);
+        Func<string, Task> reply = t => slack.PostEphemeralAsync(message.ChannelId, message.UserId, record.ThreadTs, t, ct);
+        if (!isDiceAnswer)
+        {
+            await MoveAsync(record, message.UserId, text, reply, ct);
+            return;
+        }
+
+        // "yes" / "no" / "veto" only mean something from the right player while a gamble is waiting;
+        // otherwise it's just chat.
+        var isRequester = record.Dice.Pending?.RequesterId == message.UserId;
+        if (record.Dice.Pending is null || (command is VetoCommand ? isRequester : !isRequester))
+        {
+            return;
+        }
+
+        switch (command)
+        {
+            case ConfirmRollCommand:
+                await ConfirmRollAsync(record, message.UserId, reply, ct);
+                break;
+            case CancelRollCommand:
+                await CancelRollAsync(record, message.UserId, reply, ct);
+                break;
+            case VetoCommand:
+                await VetoAsync(record, message.UserId, reply, ct);
+                break;
+        }
     }
 
     private async Task ChallengeAsync(IncomingMessage message, ChallengeCommand challenge, string botId, CancellationToken ct)
@@ -179,7 +241,7 @@ public sealed class ChessBotService(
         var blackId = challengerIsWhite ? challenge.OpponentId : message.UserId;
 
         // The challenge is always a new top-level message so each game gets a thread of its own.
-        var card = Messages.ChallengeCard(message.UserId, challenge.OpponentId, whiteId);
+        var card = Messages.ChallengeCard(message.UserId, challenge.OpponentId, whiteId, challenge.Mode);
         var ts = await slack.PostMessageAsync(new SlackMessage(message.ChannelId, card.Text, card.Blocks), ct);
 
         var now = time.GetUtcNow();
@@ -187,6 +249,7 @@ public sealed class ChessBotService(
         {
             ChannelId = message.ChannelId,
             ThreadTs = ts,
+            Mode = challenge.Mode,
             ChallengerId = message.UserId,
             OpponentId = challenge.OpponentId,
             WhiteId = whiteId,
@@ -263,6 +326,13 @@ public sealed class ChessBotService(
         {
             await reply(error);
             return;
+        }
+
+        // Moving instead of rolling withdraws a waiting gamble.
+        if (record.Dice.Pending is { } pending)
+        {
+            record.Dice.Pending = null;
+            await CloseProposalAsync(record, pending, "_Withdrawn: they moved instead._", ct);
         }
 
         record.SyncFrom(game);
@@ -388,7 +458,7 @@ public sealed class ChessBotService(
         }
 
         var pgn = await BuildPgnAsync(record, game, ct);
-        var content = Messages.Pgn(pgn, record.AnalysisUrl ?? LichessClient.AnalysisBoardUrl(game.MovesSan()));
+        var content = Messages.Pgn(pgn, AnalysisUrl(record, game));
         await slack.PostMessageAsync(new SlackMessage(record.ChannelId, content.Text, content.Blocks, record.ThreadTs), ct);
     }
 
@@ -418,46 +488,77 @@ public sealed class ChessBotService(
 
     private async Task StatsAsync(IncomingMessage message, string userId, CancellationToken ct)
     {
-        var standing = (await StandingsAsync(ct)).FirstOrDefault(s => s.UserId == userId);
-        var text = standing is null
-            ? $"<@{userId}> hasn't finished any games yet."
-            : $"<@{userId}>: *{standing.Wins}* wins, *{standing.Losses}* losses, *{standing.Draws}* draws ({standing.Games} games)";
-        await slack.PostMessageAsync(new SlackMessage(message.ChannelId, text, ThreadTs: message.ThreadTs), ct);
+        var standard = (await StandingsAsync(GameMode.Standard, ct)).FirstOrDefault(s => s.UserId == userId);
+        var diceGames = (await StandingsAsync(GameMode.DiceRoll, ct)).FirstOrDefault(s => s.UserId == userId);
+        string Line(Standing s) => $"*{s.Wins}* wins, *{s.Losses}* losses, *{s.Draws}* draws ({s.Games} games)";
+
+        var sb = new StringBuilder();
+        if (standard is null && diceGames is null)
+        {
+            sb.Append($"<@{userId}> hasn't finished any games yet.");
+        }
+        else
+        {
+            sb.AppendLine($"*Stats for <@{userId}>*");
+            if (standard is not null)
+            {
+                sb.AppendLine($":chess_pawn: Chess: {Line(standard)}");
+            }
+
+            if (diceGames is not null)
+            {
+                sb.AppendLine($":game_die: ChessDiceRoll: {Line(diceGames)}");
+                sb.AppendLine($":game_die: Gambles: *{diceGames.RollsWon}* of {diceGames.RollsTaken} won");
+            }
+        }
+
+        await slack.PostMessageAsync(new SlackMessage(message.ChannelId, sb.ToString().TrimEnd(), ThreadTs: message.ThreadTs), ct);
     }
 
-    private async Task LeaderboardAsync(IncomingMessage message, CancellationToken ct)
+    private async Task LeaderboardAsync(IncomingMessage message, GameMode mode, CancellationToken ct)
     {
-        var standings = await StandingsAsync(ct);
+        var standings = await StandingsAsync(mode, ct);
+        var dice = mode == GameMode.DiceRoll;
         if (standings.Count == 0)
         {
-            await slack.PostMessageAsync(new SlackMessage(message.ChannelId, "No games have been finished yet.", ThreadTs: message.ThreadTs), ct);
+            var none = dice ? "No ChessDiceRoll games have been finished yet." : "No games have been finished yet.";
+            await slack.PostMessageAsync(new SlackMessage(message.ChannelId, none, ThreadTs: message.ThreadTs), ct);
             return;
         }
 
-        var sb = new StringBuilder(":trophy: *Leaderboard* (1 point per win, ½ per draw)\n");
+        var sb = new StringBuilder(dice
+            ? ":game_die: *ChessDiceRoll Leaderboard* (1 point per win, ½ per draw)\n"
+            : ":trophy: *Leaderboard* (1 point per win, ½ per draw)\n");
         var rank = 1;
         foreach (var s in standings.Take(10))
         {
-            sb.AppendLine($"{rank++}. <@{s.UserId}> — *{s.Points:0.#}* pts ({s.Wins}W {s.Losses}L {s.Draws}D)");
+            var gambles = dice ? $" · gambles won {s.RollsWon}/{s.RollsTaken}" : "";
+            sb.AppendLine($"{rank++}. <@{s.UserId}> — *{s.Points:0.#}* pts ({s.Wins}W {s.Losses}L {s.Draws}D){gambles}");
         }
 
         await slack.PostMessageAsync(new SlackMessage(message.ChannelId, sb.ToString(), ThreadTs: message.ThreadTs), ct);
     }
 
-    private async Task<List<Standing>> StandingsAsync(CancellationToken ct)
+    private async Task<List<Standing>> StandingsAsync(GameMode mode, CancellationToken ct)
     {
         var table = new Dictionary<string, Standing>();
         Standing For(string user) => table.TryGetValue(user, out var s) ? s : table[user] = new Standing(user);
 
         foreach (var record in await games.GetFinishedGamesAsync(ct))
         {
-            if (record.Termination == Termination.Abandoned)
+            if (record.Termination == Termination.Abandoned || record.Mode != mode)
             {
                 continue;
             }
 
             var white = For(record.WhiteId);
             var black = For(record.BlackId);
+            foreach (var roll in record.Dice.Log)
+            {
+                var roller = For(roll.UserId);
+                roller.RollsTaken++;
+                roller.RollsWon += roll.Success ? 1 : 0;
+            }
             switch (record.Outcome)
             {
                 case GameOutcome.WhiteWins:
@@ -506,7 +607,9 @@ public sealed class ChessBotService(
 
     private async Task FinishAsync(GameRecord record, Game game, CancellationToken ct)
     {
-        if (Options.ImportFinishedGamesToLichess && game.Moves.Count > 0 && game.Termination != Termination.Abandoned)
+        // Dice games can't be replayed as normal chess, so lichess gets only the final position (see AnalysisUrl).
+        if (Options.ImportFinishedGamesToLichess && game.Moves.Count > 0 && game.Termination != Termination.Abandoned &&
+            record.Mode == GameMode.Standard)
         {
             record.AnalysisUrl = await analysis.ImportAsync(await BuildPgnAsync(record, game, ct), ct);
             if (record.AnalysisUrl is not null)
@@ -522,8 +625,7 @@ public sealed class ChessBotService(
     private async Task PostGameOverAsync(GameRecord record, Game game, bool broadcast, CancellationToken ct)
     {
         var pgn = await BuildPgnAsync(record, game, ct);
-        var url = record.AnalysisUrl ?? LichessClient.AnalysisBoardUrl(game.MovesSan());
-        var content = Messages.GameOver(record, game, pgn, url, Options.PublicBaseUrl);
+        var content = Messages.GameOver(record, game, pgn, AnalysisUrl(record, game), Options.PublicBaseUrl);
         await slack.PostMessageAsync(new SlackMessage(record.ChannelId, content.Text, content.Blocks, record.ThreadTs, broadcast), ct);
     }
 
@@ -543,8 +645,18 @@ public sealed class ChessBotService(
             ["White"] = await slack.GetUserNameAsync(record.WhiteId, ct),
             ["Black"] = await slack.GetUserNameAsync(record.BlackId, ct),
         };
+        if (record.Mode == GameMode.DiceRoll)
+        {
+            headers["Variant"] = "ChessDiceRoll";
+        }
+
         return game.ToPgn(headers);
     }
+
+    private static string AnalysisUrl(GameRecord record, Game game) =>
+        record.AnalysisUrl ?? (record.Mode == GameMode.DiceRoll
+            ? LichessClient.AnalysisPositionUrl(game.Current.ToFen())
+            : LichessClient.AnalysisBoardUrl(game.MovesSan()));
 
     private Task SaveAsync(GameRecord record, CancellationToken ct)
     {
@@ -564,6 +676,10 @@ public sealed class ChessBotService(
         public int Losses { get; set; }
 
         public int Draws { get; set; }
+
+        public int RollsTaken { get; set; }
+
+        public int RollsWon { get; set; }
 
         public int Games => Wins + Losses + Draws;
 

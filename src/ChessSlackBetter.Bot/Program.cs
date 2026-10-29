@@ -1,4 +1,5 @@
 using ChessSlackBetter.Bot;
+using ChessSlackBetter.Bot.Dice;
 using ChessSlackBetter.Bot.Games;
 using ChessSlackBetter.Bot.Rendering;
 using ChessSlackBetter.Bot.Slack;
@@ -16,6 +17,9 @@ builder.Services.AddHttpClient<ISlackApi, SlackApiClient>();
 builder.Services.AddHttpClient<IAnalysisLinks, LichessClient>(http => http.Timeout = TimeSpan.FromSeconds(10));
 builder.Services.AddSingleton<IGameRepository, SqliteGameRepository>();
 builder.Services.AddSingleton<BoardRenderer>();
+builder.Services.Configure<AnthropicOptions>(builder.Configuration.GetSection(AnthropicOptions.Section));
+builder.Services.AddSingleton<IDiceJudge, ClaudeDiceJudge>();
+builder.Services.AddSingleton<IDiceRoller, CryptoDiceRoller>();
 builder.Services.AddScoped<ChessBotService>();
 builder.Services.AddSingleton<WorkQueue>();
 builder.Services.AddHostedService<WorkQueueService>();
@@ -27,7 +31,8 @@ app.MapGet("/healthz", () => Results.Ok("ok"));
 app.MapSlackEndpoints();
 
 // Slack fetches board images from here. The URL encodes the whole position, so responses can be cached forever.
-app.MapGet("/board.png", (string fen, string? last, string? pov, BoardRenderer renderer, HttpResponse response) =>
+// `last` is a UCI move to highlight; `hl` is a comma-separated list of squares (used after dice rolls).
+app.MapGet("/board.png", (string fen, string? last, string? hl, string? pov, BoardRenderer renderer, HttpResponse response) =>
 {
     Position position;
     try
@@ -39,17 +44,26 @@ app.MapGet("/board.png", (string fen, string? last, string? pov, BoardRenderer r
         return Results.BadRequest("Invalid FEN.");
     }
 
-    Move? lastMove = null;
+    var highlights = new HashSet<int>();
     if (last is { Length: 4 or 5 } &&
         Square.TryParse(last.AsSpan(0, 2), out var from) &&
         Square.TryParse(last.AsSpan(2, 2), out var to))
     {
-        lastMove = new Move(from, to);
+        highlights.Add(from);
+        highlights.Add(to);
+    }
+
+    foreach (var name in (hl ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries))
+    {
+        if (Square.TryParse(name, out var square))
+        {
+            highlights.Add(square);
+        }
     }
 
     var perspective = pov == "b" ? PieceColor.Black : PieceColor.White;
     response.Headers.CacheControl = "public, max-age=31536000, immutable";
-    return Results.File(renderer.RenderPng(position, lastMove, perspective), "image/png");
+    return Results.File(renderer.RenderPng(position, highlights, perspective), "image/png");
 });
 
 app.Run();

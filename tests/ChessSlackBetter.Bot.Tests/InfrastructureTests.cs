@@ -35,6 +35,25 @@ public class CommandParserTests
     }
 
     [Fact]
+    public void Parses_dice_commands()
+    {
+        var challenge = Assert.IsType<ChallengeCommand>(CommandParser.Parse("diceroll <@UBOB> black"));
+        Assert.Equal(GameMode.DiceRoll, challenge.Mode);
+        Assert.Equal(PieceColor.Black, challenge.ChallengerColor);
+        Assert.Equal(GameMode.Standard, Assert.IsType<ChallengeCommand>(CommandParser.Parse("challenge <@UBOB>")).Mode);
+
+        var roll = Assert.IsType<RollRequestCommand>(CommandParser.Parse("roll turn my e4 pawn into a bishop, if I fail I lose it"));
+        Assert.Equal("turn my e4 pawn into a bishop, if I fail I lose it", roll.Request);
+
+        Assert.IsType<ConfirmRollCommand>(CommandParser.Parse("yes"));
+        Assert.IsType<ConfirmRollCommand>(CommandParser.Parse("roll"));
+        Assert.IsType<CancelRollCommand>(CommandParser.Parse("no"));
+        Assert.IsType<VetoCommand>(CommandParser.Parse("veto"));
+        Assert.Equal(GameMode.DiceRoll, Assert.IsType<LeaderboardCommand>(CommandParser.Parse("leaderboard dice")).Mode);
+        Assert.IsType<UnknownCommand>(CommandParser.Parse("I want to roll a dice to turn my pawn into a bishop"));
+    }
+
+    [Fact]
     public void Challenge_reads_opponent_and_colour()
     {
         var command = Assert.IsType<ChallengeCommand>(CommandParser.Parse("challenge <@UBOB|bob> as Black"));
@@ -117,7 +136,7 @@ public class BoardRendererTests
     {
         using var renderer = new BoardRenderer();
         var position = Position.FromFen("rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3");
-        var png = renderer.RenderPng(position, new Move(Square.Parse("d8"), Square.Parse("h4")), PieceColor.Black);
+        var png = renderer.RenderPng(position, [Square.Parse("d8"), Square.Parse("h4")], PieceColor.Black);
 
         Assert.True(png.Length > 1000);
         Assert.Equal([0x89, (byte)'P', (byte)'N', (byte)'G'], png[..4]);
@@ -169,6 +188,50 @@ public sealed class SqliteGameRepositoryTests : IDisposable
         Assert.Single(await repo.GetOpenGamesAsync("UB"));
         Assert.Empty(await repo.GetFinishedGamesAsync());
         Assert.Null(await repo.GetAsync("C1", "2.0"));
+    }
+
+    [Fact]
+    public async Task Upgrades_old_databases_and_round_trips_dice_state()
+    {
+        // A database created before dice mode existed.
+        using (var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={_path}"))
+        {
+            connection.Open();
+            using var create = connection.CreateCommand();
+            create.CommandText = """
+                CREATE TABLE games (channel_id TEXT NOT NULL, thread_ts TEXT NOT NULL, challenger_id TEXT NOT NULL,
+                    opponent_id TEXT NOT NULL, white_id TEXT NOT NULL, black_id TEXT NOT NULL, state TEXT NOT NULL,
+                    moves TEXT NOT NULL, draw_offered_by TEXT, outcome TEXT NOT NULL, termination TEXT NOT NULL,
+                    analysis_url TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (channel_id, thread_ts));
+                INSERT INTO games VALUES ('C1', 'old', 'UA', 'UB', 'UA', 'UB', 'Active', 'e2e4', NULL, 'Ongoing', 'None', NULL,
+                    '2026-01-01T00:00:00+00:00', '2026-01-01T00:00:00+00:00');
+                """;
+            create.ExecuteNonQuery();
+        }
+
+        var repo = new SqliteGameRepository(_path);
+        var old = await repo.GetAsync("C1", "old");
+        Assert.Equal(GameMode.Standard, old!.Mode);
+        Assert.Equal(["e2e4"], old.Moves);
+
+        var now = DateTimeOffset.UtcNow;
+        var dice = new GameRecord
+        {
+            ChannelId = "C1", ThreadTs = "dice", ChallengerId = "UA", OpponentId = "UB", WhiteId = "UA", BlackId = "UB",
+            Mode = GameMode.DiceRoll, CreatedAt = now, UpdatedAt = now,
+            Moves = ["e2e4", "e7e5", "dice:e4=B"],
+        };
+        dice.Dice.RollsUsed["UA"] = 1;
+        dice.Dice.VetoesUsed.Add("UB");
+        dice.Dice.Log.Add(new ChessSlackBetter.Bot.Dice.DiceRollResult("UA", "bishop please", 14, 17, true, "Your e4 pawn becomes a bishop"));
+        await repo.SaveAsync(dice);
+
+        var loaded = (await repo.GetAsync("C1", "dice"))!;
+        Assert.Equal(GameMode.DiceRoll, loaded.Mode);
+        Assert.Equal(2, loaded.Dice.RollsLeft("UA"));
+        Assert.Equal(0, loaded.Dice.VetoesLeft("UB"));
+        Assert.Equal(17, loaded.Dice.Log.Single().Roll);
+        Assert.Equal(PieceType.Bishop, loaded.LoadGame().Current[Square.Parse("e4")].Type);
     }
 
     public void Dispose()

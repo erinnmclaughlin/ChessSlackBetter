@@ -8,7 +8,19 @@ public abstract record BotCommand;
 public sealed record HelpCommand : BotCommand;
 
 /// <summary>Challenge another user. <see cref="ChallengerColor"/> is null for a random colour.</summary>
-public sealed record ChallengeCommand(string OpponentId, PieceColor? ChallengerColor) : BotCommand;
+public sealed record ChallengeCommand(string OpponentId, PieceColor? ChallengerColor, GameMode Mode = GameMode.Standard) : BotCommand;
+
+/// <summary>A dice-game gamble described in plain English.</summary>
+public sealed record RollRequestCommand(string Request) : BotCommand;
+
+/// <summary>The requester agrees to roll for their pending gamble.</summary>
+public sealed record ConfirmRollCommand : BotCommand;
+
+/// <summary>The requester backs out of their pending gamble.</summary>
+public sealed record CancelRollCommand : BotCommand;
+
+/// <summary>The opponent blocks the pending gamble.</summary>
+public sealed record VetoCommand : BotCommand;
 
 public sealed record AcceptCommand : BotCommand;
 
@@ -33,7 +45,7 @@ public sealed record GamesCommand : BotCommand;
 /// <summary>Win/loss record for a user; <see cref="UserId"/> is null for the person asking.</summary>
 public sealed record StatsCommand(string? UserId) : BotCommand;
 
-public sealed record LeaderboardCommand : BotCommand;
+public sealed record LeaderboardCommand(GameMode Mode = GameMode.Standard) : BotCommand;
 
 public sealed record UnknownCommand(string Text) : BotCommand;
 
@@ -59,7 +71,7 @@ public static partial class CommandParser
         {
             case "help" or "commands" or "?":
                 return new HelpCommand();
-            case "challenge" or "play" or "duel" or "vs":
+            case "challenge" or "play" or "duel" or "vs" or "diceroll" or "chessdiceroll" or "dice":
                 if (mentioned is null)
                 {
                     return new UnknownCommand(trimmed);
@@ -68,7 +80,19 @@ public static partial class CommandParser
                 PieceColor? color = null;
                 if (words.Any(w => w.Equals("white", StringComparison.OrdinalIgnoreCase))) color = PieceColor.White;
                 if (words.Any(w => w.Equals("black", StringComparison.OrdinalIgnoreCase))) color = PieceColor.Black;
-                return new ChallengeCommand(mentioned, color);
+                var mode = verb is "diceroll" or "chessdiceroll" or "dice" ||
+                           words.Any(w => w.Equals("diceroll", StringComparison.OrdinalIgnoreCase))
+                    ? GameMode.DiceRoll
+                    : GameMode.Standard;
+                return new ChallengeCommand(mentioned, color, mode);
+            case "roll" or "gamble" when words.Length > 1:
+                return new RollRequestCommand(trimmed[words[0].Length..].Trim());
+            case "roll" or "yes" or "y" or "yep" or "yeah" or "sure":
+                return new ConfirmRollCommand();
+            case "no" or "n" or "nope" or "nah":
+                return new CancelRollCommand();
+            case "veto":
+                return new VetoCommand();
             case "accept":
                 return new AcceptCommand();
             case "decline" or "reject" or "cancel" or "withdraw":
@@ -90,7 +114,9 @@ public static partial class CommandParser
             case "stats" or "record":
                 return new StatsCommand(mentioned);
             case "leaderboard" or "top" or "rankings":
-                return new LeaderboardCommand();
+                return new LeaderboardCommand(words.Skip(1).Any(w => w.StartsWith("dice", StringComparison.OrdinalIgnoreCase))
+                    ? GameMode.DiceRoll
+                    : GameMode.Standard);
             case "move" or "m" when words.Length > 1:
                 return new MoveCommand(words[1]);
         }
