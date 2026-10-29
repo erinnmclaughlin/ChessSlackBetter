@@ -2,6 +2,7 @@ using System.Text.Json.Nodes;
 using ChessSlackBetter.Bot.Dice;
 using ChessSlackBetter.Bot.Games;
 using ChessSlackBetter.Bot.Slack;
+using ChessSlackBetter.Bot.Users;
 using ChessSlackBetter.Chess;
 
 namespace ChessSlackBetter.Bot.Tests;
@@ -64,6 +65,20 @@ public sealed class InMemoryGameRepository : IGameRepository
 
     public Task<IReadOnlyList<GameRecord>> GetFinishedGamesAsync(CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<GameRecord>>(_games.Values.Where(g => g.State == GameState.Finished).ToList());
+}
+
+public sealed class InMemoryUserRepository : IUserRepository
+{
+    public Dictionary<string, string> Themes { get; } = new();
+
+    public Task<string?> GetThemeAsync(string userId, CancellationToken ct = default) =>
+        Task.FromResult(Themes.GetValueOrDefault(userId));
+
+    public Task SetThemeAsync(string userId, string theme, CancellationToken ct = default)
+    {
+        Themes[userId] = theme;
+        return Task.CompletedTask;
+    }
 }
 
 public sealed class FakeDiceJudge : IDiceJudge

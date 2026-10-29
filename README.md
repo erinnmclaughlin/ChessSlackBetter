@@ -25,6 +25,7 @@ Play chess against other people in Slack threads. A C# / .NET 10 rebuild of
 | Game thread | `@ChessBetterBot board` / `pgn` | Re-post the board / export the game |
 | Anywhere | `@ChessBetterBot games` | Your open games, with links |
 | Anywhere | `@ChessBetterBot stats [@user]` / `leaderboard` | Results |
+| Anywhere | `@ChessBetterBot theme [brown\|blue\|green\|purple\|grey]` | Show or set your board colours, used for the board on your turn |
 | Anywhere | `@ChessBetterBot help` | Help |
 
 ## ChessDiceRoll

@@ -5,16 +5,11 @@ using Svg.Skia;
 
 namespace ChessSlackBetter.Bot.Rendering;
 
-/// <summary>Draws a position as a PNG, lichess-style: brown squares, cburnett pieces, last move and check highlighted.</summary>
+/// <summary>Draws a position as a PNG, lichess-style: themed squares, cburnett pieces, last move and check highlighted.</summary>
 public sealed class BoardRenderer : IDisposable
 {
     public const int SquareSize = 64;
     public const int BoardSize = SquareSize * 8;
-
-    private static readonly SKColor Light = SKColor.Parse("#f0d9b5");
-    private static readonly SKColor Dark = SKColor.Parse("#b58863");
-    private static readonly SKColor LastMoveLight = SKColor.Parse("#cdd26a");
-    private static readonly SKColor LastMoveDark = SKColor.Parse("#aaa23a");
 
     private readonly Dictionary<Piece, SKSvg> _pieces = new();
 
@@ -38,8 +33,10 @@ public sealed class BoardRenderer : IDisposable
     /// <param name="position">The position to draw.</param>
     /// <param name="highlights">Squares to highlight: the last move's from/to, or the squares a dice roll changed.</param>
     /// <param name="perspective">The side shown at the bottom of the board.</param>
-    public byte[] RenderPng(Position position, IReadOnlyCollection<int> highlights, PieceColor perspective)
+    /// <param name="theme">Square colours; <see cref="BoardTheme.Default"/> when null.</param>
+    public byte[] RenderPng(Position position, IReadOnlyCollection<int> highlights, PieceColor perspective, BoardTheme? theme = null)
     {
+        theme ??= BoardTheme.Default;
         using var surface = SKSurface.Create(new SKImageInfo(BoardSize, BoardSize));
         var canvas = surface.Canvas;
         using var fill = new SKPaint { IsAntialias = true };
@@ -54,7 +51,7 @@ public sealed class BoardRenderer : IDisposable
             var light = Square.IsLight(sq);
             var highlighted = highlights.Contains(sq);
             fill.Shader = null;
-            fill.Color = highlighted ? (light ? LastMoveLight : LastMoveDark) : (light ? Light : Dark);
+            fill.Color = highlighted ? (light ? theme.LastMoveLight : theme.LastMoveDark) : (light ? theme.Light : theme.Dark);
             canvas.DrawRect(rect, fill);
 
             if (sq == checkedKing)
@@ -70,7 +67,7 @@ public sealed class BoardRenderer : IDisposable
                 fill.Shader = null;
             }
 
-            DrawCoordinates(canvas, font, sq, x, y, perspective, light);
+            DrawCoordinates(canvas, font, sq, x, y, perspective, light ? theme.Dark : theme.Light);
 
             var piece = position[sq];
             if (!piece.IsEmpty && _pieces[piece].Picture is { } picture)
@@ -126,9 +123,9 @@ public sealed class BoardRenderer : IDisposable
             : ((7 - file) * SquareSize, rank * SquareSize);
     }
 
-    private static void DrawCoordinates(SKCanvas canvas, SKFont font, int sq, int x, int y, PieceColor perspective, bool light)
+    private static void DrawCoordinates(SKCanvas canvas, SKFont font, int sq, int x, int y, PieceColor perspective, SKColor color)
     {
-        using var paint = new SKPaint { IsAntialias = true, Color = light ? Dark : Light };
+        using var paint = new SKPaint { IsAntialias = true, Color = color };
         var bottomRank = perspective == PieceColor.White ? 0 : 7;
         var leftFile = perspective == PieceColor.White ? 0 : 7;
 

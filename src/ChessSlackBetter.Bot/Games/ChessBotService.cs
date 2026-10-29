@@ -1,6 +1,7 @@
 using System.Text;
 using ChessSlackBetter.Bot.Dice;
 using ChessSlackBetter.Bot.Slack;
+using ChessSlackBetter.Bot.Users;
 using ChessSlackBetter.Chess;
 using Microsoft.Extensions.Options;
 
@@ -15,6 +16,7 @@ public sealed record IncomingAction(string ActionId, string UserId, string Chann
 public sealed partial class ChessBotService(
     ISlackApi slack,
     IGameRepository games,
+    IUserRepository users,
     IAnalysisLinks analysis,
     IDiceJudge judge,
     IDiceRoller dice,
@@ -60,6 +62,9 @@ public sealed partial class ChessBotService(
                 return;
             case LeaderboardCommand leaderboard:
                 await LeaderboardAsync(message, leaderboard.Mode, ct);
+                return;
+            case ThemeCommand theme:
+                await ThemeAsync(message, theme.Name, ct);
                 return;
         }
 
@@ -601,7 +606,9 @@ public sealed partial class ChessBotService(
 
     private async Task PostBoardAsync(GameRecord record, Game game, CancellationToken ct)
     {
-        var board = Messages.Board(record, game, Options.PublicBaseUrl);
+        // The board is drawn in the theme of whoever has to move next.
+        var theme = await users.GetThemeAsync(record.PlayerFor(game.Current.SideToMove), ct);
+        var board = Messages.Board(record, game, Options.PublicBaseUrl, theme);
         await slack.PostMessageAsync(new SlackMessage(record.ChannelId, board.Text, board.Blocks, record.ThreadTs), ct);
     }
 
@@ -657,6 +664,26 @@ public sealed partial class ChessBotService(
         record.AnalysisUrl ?? (record.Mode == GameMode.DiceRoll
             ? LichessClient.AnalysisPositionUrl(game.Current.ToFen())
             : LichessClient.AnalysisBoardUrl(game.MovesSan()));
+
+    private async Task ThemeAsync(IncomingMessage message, string? name, CancellationToken ct)
+    {
+        var choices = string.Join(", ", Rendering.BoardTheme.All.Select(t => $"`{t.Name}`"));
+        if (name is null)
+        {
+            var current = await users.GetThemeAsync(message.UserId, ct) ?? Rendering.BoardTheme.Default.Name;
+            await EphemeralAsync(message, $"Your board theme is *{current}*. Change it with `@ChessBetterBot theme <name>`: {choices}.", ct);
+            return;
+        }
+
+        if (Rendering.BoardTheme.Find(name) is not { } theme)
+        {
+            await EphemeralAsync(message, $"There's no `{name}` theme. Pick one of {choices}.", ct);
+            return;
+        }
+
+        await users.SetThemeAsync(message.UserId, theme.Name, ct);
+        await EphemeralAsync(message, $"Your board theme is now *{theme.Name}*. You'll see it on the board whenever it's your turn.", ct);
+    }
 
     private Task SaveAsync(GameRecord record, CancellationToken ct)
     {
