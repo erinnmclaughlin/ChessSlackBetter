@@ -30,4 +30,8 @@ public sealed class LichessClient(HttpClient http, ILogger<LichessClient> logger
     /// <summary>A lichess analysis board for the moves so far; works without importing anything.</summary>
     public static string AnalysisBoardUrl(string sanMoves) =>
         "https://lichess.org/analysis/pgn/" + Uri.EscapeDataString(sanMoves);
+
+    /// <summary>A lichess analysis board starting from a position (lichess uses underscores for the FEN's spaces).</summary>
+    public static string AnalysisPositionUrl(string fen) =>
+        "https://lichess.org/analysis/" + fen.Replace(' ', '_');
 }

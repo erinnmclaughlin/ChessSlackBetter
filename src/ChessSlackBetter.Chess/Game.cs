@@ -24,7 +24,19 @@ public enum Termination
     Abandoned,
 }
 
-public sealed record PlayedMove(Move Move, string San);
+/// <summary>
+/// One turn of the game: a normal move, or (in dice games) a set of board edits in place of a move,
+/// in which case <see cref="Edits"/> is set and <see cref="Move"/> is meaningless.
+/// </summary>
+public sealed record PlayedMove(Move Move, string San, IReadOnlyList<SquareEdit>? Edits = null)
+{
+    public const string DicePrefix = "dice:";
+
+    public bool IsDiceRoll => Edits is not null;
+
+    /// <summary>Storage form: UCI for moves ("e2e4"), "dice:e4=B,d5=-" for edits.</summary>
+    public string ToToken() => Edits is null ? Move.ToUci() : DicePrefix + string.Join(',', Edits);
+}
 
 /// <summary>A game from the standard starting position: its moves and how (or whether) it ended.</summary>
 public sealed class Game
@@ -50,19 +62,91 @@ public sealed class Game
 
     public bool IsOver => Outcome != GameOutcome.Ongoing;
 
-    /// <summary>Rebuilds a game from a list of UCI moves, e.g. "e2e4 e7e5".</summary>
-    public static Game FromUci(IEnumerable<string> uciMoves)
+    /// <summary>Rebuilds a game from stored tokens (see <see cref="PlayedMove.ToToken"/>), e.g. "e2e4", "dice:e4=B".</summary>
+    public static Game Replay(IEnumerable<string> tokens)
     {
         var game = new Game();
-        foreach (var uci in uciMoves)
+        foreach (var token in tokens)
         {
-            if (!game.TryPlay(uci, out _, out var error))
+            string? error;
+            var ok = token.StartsWith(PlayedMove.DicePrefix, StringComparison.Ordinal)
+                ? game.TryApplyEdits(token[PlayedMove.DicePrefix.Length..].Split(',').Select(SquareEdit.Parse).ToList(), out error)
+                : game.TryPlay(token, out _, out error);
+            if (!ok)
             {
-                throw new FormatException($"Stored move '{uci}' is invalid: {error}");
+                throw new FormatException($"Stored move '{token}' is invalid: {error}");
             }
         }
 
         return game;
+    }
+
+    /// <summary>
+    /// Checks whether board edits may replace the current player's move: kings can't be touched or created,
+    /// pawns can't land on the back ranks, the player can't leave themself in check, and the opponent must
+    /// still have a legal move (no checkmate or stalemate by dice).
+    /// </summary>
+    public static bool ValidateEdits(Position position, IReadOnlyList<SquareEdit> edits, [NotNullWhen(false)] out string? error)
+    {
+        error = null;
+        if (edits.Count == 0)
+        {
+            error = "Nothing on the board would change.";
+            return false;
+        }
+
+        foreach (var edit in edits)
+        {
+            if (position[edit.Square].Type == PieceType.King || edit.Piece.Type == PieceType.King)
+            {
+                error = "Kings can't be changed by dice.";
+                return false;
+            }
+
+            if (edit.Piece.Type == PieceType.Pawn && Square.Rank(edit.Square) is 0 or 7)
+            {
+                error = "Pawns can't be placed on the first or last rank.";
+                return false;
+            }
+        }
+
+        var after = position.WithEdits(edits);
+        if (after.IsInCheck(position.SideToMove))
+        {
+            error = "That would leave your own king in check.";
+            return false;
+        }
+
+        if (after.GenerateLegalMoves().Count == 0)
+        {
+            error = after.IsInCheck()
+                ? "Dice can't deliver checkmate."
+                : "That would stalemate your opponent.";
+            return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>Applies dice edits in place of the current player's move.</summary>
+    public bool TryApplyEdits(IReadOnlyList<SquareEdit> edits, [NotNullWhen(false)] out string? error)
+    {
+        if (IsOver)
+        {
+            error = "The game is already over.";
+            return false;
+        }
+
+        if (!ValidateEdits(Current, edits, out error))
+        {
+            return false;
+        }
+
+        _moves.Add(new PlayedMove(default, "{dice " + string.Join(' ', edits) + "}", edits));
+        Current = Current.WithEdits(edits);
+        _repetitionKeys.Add(Current.RepetitionKey());
+        DetectAutomaticEnd();
+        return true;
     }
 
     public bool TryPlay(string input, [NotNullWhen(true)] out PlayedMove? played, [NotNullWhen(false)] out string? error)

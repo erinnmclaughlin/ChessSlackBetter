@@ -262,6 +262,42 @@ public sealed class Position
             SideToMove == PieceColor.Black ? FullmoveNumber + 1 : FullmoveNumber);
     }
 
+    /// <summary>
+    /// Changes pieces on the board in place of a move: the turn passes, en passant is cleared and castling rights
+    /// are dropped for any king or rook no longer on its home square. Does not check legality.
+    /// </summary>
+    public Position WithEdits(IEnumerable<SquareEdit> edits)
+    {
+        var board = (Piece[])_board.Clone();
+        foreach (var edit in edits)
+        {
+            board[edit.Square] = edit.Piece;
+        }
+
+        var castling = Castling;
+        foreach (var (right, king, rook, color) in new[]
+                 {
+                     (CastlingRights.WhiteKingSide, 4, 7, PieceColor.White),
+                     (CastlingRights.WhiteQueenSide, 4, 0, PieceColor.White),
+                     (CastlingRights.BlackKingSide, 60, 63, PieceColor.Black),
+                     (CastlingRights.BlackQueenSide, 60, 56, PieceColor.Black),
+                 })
+        {
+            if (board[king] != new Piece(PieceType.King, color) || board[rook] != new Piece(PieceType.Rook, color))
+            {
+                castling &= ~right;
+            }
+        }
+
+        return new Position(
+            board,
+            SideToMove.Opponent(),
+            castling,
+            -1,
+            0,
+            SideToMove == PieceColor.Black ? FullmoveNumber + 1 : FullmoveNumber);
+    }
+
     /// <summary>True when neither side can possibly deliver mate (K v K, K+minor v K, K+B v K+B on same colour).</summary>
     public bool IsInsufficientMaterial()
     {

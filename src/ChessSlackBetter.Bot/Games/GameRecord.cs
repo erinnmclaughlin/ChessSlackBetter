@@ -13,6 +13,14 @@ public enum GameState
     Declined,
 }
 
+public enum GameMode
+{
+    Standard,
+
+    /// <summary>ChessDiceRoll: players may gamble on a d20 instead of moving.</summary>
+    DiceRoll,
+}
+
 /// <summary>
 /// A game as stored in the database. Each game lives in the Slack thread under the bot's challenge message,
 /// so (ChannelId, ThreadTs) identifies it.
@@ -22,6 +30,11 @@ public sealed class GameRecord
     public required string ChannelId { get; init; }
 
     public required string ThreadTs { get; init; }
+
+    public GameMode Mode { get; init; } = GameMode.Standard;
+
+    /// <summary>Rolls, vetoes and the pending gamble. Only used in <see cref="GameMode.DiceRoll"/> games.</summary>
+    public Dice.DiceState Dice { get; set; } = new();
 
     public required string ChallengerId { get; init; }
 
@@ -33,7 +46,7 @@ public sealed class GameRecord
 
     public GameState State { get; set; } = GameState.Challenged;
 
-    /// <summary>Moves in UCI notation, e.g. "e2e4".</summary>
+    /// <summary>Moves in UCI notation, e.g. "e2e4", plus "dice:..." entries for dice rolls.</summary>
     public List<string> Moves { get; set; } = [];
 
     public string? DrawOfferedBy { get; set; }
@@ -63,7 +76,7 @@ public sealed class GameRecord
     /// <summary>Replays the stored moves, including any result that isn't implied by the moves themselves.</summary>
     public Game LoadGame()
     {
-        var game = Game.FromUci(Moves);
+        var game = Game.Replay(Moves);
         if (!game.IsOver)
         {
             switch (Termination)
@@ -86,13 +99,14 @@ public sealed class GameRecord
     /// <summary>Copies the result of a game into this record.</summary>
     public void SyncFrom(Game game)
     {
-        Moves = game.Moves.Select(m => m.Move.ToUci()).ToList();
+        Moves = game.Moves.Select(m => m.ToToken()).ToList();
         Outcome = game.Outcome;
         Termination = game.Termination;
         if (game.IsOver)
         {
             State = GameState.Finished;
             DrawOfferedBy = null;
+            Dice.Pending = null;
         }
     }
 }

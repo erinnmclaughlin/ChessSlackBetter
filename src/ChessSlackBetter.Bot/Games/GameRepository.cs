@@ -1,3 +1,5 @@
+using System.Text.Json;
+using ChessSlackBetter.Bot.Dice;
 using ChessSlackBetter.Chess;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Options;
@@ -19,7 +21,7 @@ public interface IGameRepository
 public sealed class SqliteGameRepository : IGameRepository
 {
     private const string Columns =
-        "channel_id, thread_ts, challenger_id, opponent_id, white_id, black_id, state, moves, draw_offered_by, outcome, termination, analysis_url, created_at, updated_at";
+        "channel_id, thread_ts, challenger_id, opponent_id, white_id, black_id, state, moves, draw_offered_by, outcome, termination, analysis_url, created_at, updated_at, mode, dice";
 
     private readonly string _connectionString;
 
@@ -55,6 +57,10 @@ public sealed class SqliteGameRepository : IGameRepository
             CREATE INDEX IF NOT EXISTS ix_games_black ON games (black_id, state);
             """;
         command.ExecuteNonQuery();
+
+        // Columns added after the first release; older databases get them here.
+        AddColumnIfMissing(connection, "mode", "TEXT NOT NULL DEFAULT 'Standard'");
+        AddColumnIfMissing(connection, "dice", "TEXT");
     }
 
     public async Task<GameRecord?> GetAsync(string channelId, string threadTs, CancellationToken ct = default)
@@ -74,9 +80,10 @@ public sealed class SqliteGameRepository : IGameRepository
         await using var command = connection.CreateCommand();
         command.CommandText = $"""
             INSERT INTO games ({Columns})
-            VALUES ($channel, $thread, $challenger, $opponent, $white, $black, $state, $moves, $draw, $outcome, $termination, $analysis, $created, $updated)
+            VALUES ($channel, $thread, $challenger, $opponent, $white, $black, $state, $moves, $draw, $outcome, $termination, $analysis, $created, $updated, $mode, $dice)
             ON CONFLICT (channel_id, thread_ts) DO UPDATE SET
                 state = excluded.state,
+                dice = excluded.dice,
                 moves = excluded.moves,
                 draw_offered_by = excluded.draw_offered_by,
                 outcome = excluded.outcome,
@@ -98,6 +105,8 @@ public sealed class SqliteGameRepository : IGameRepository
         command.Parameters.AddWithValue("$analysis", (object?)game.AnalysisUrl ?? DBNull.Value);
         command.Parameters.AddWithValue("$created", game.CreatedAt.ToString("O"));
         command.Parameters.AddWithValue("$updated", game.UpdatedAt.ToString("O"));
+        command.Parameters.AddWithValue("$mode", game.Mode.ToString());
+        command.Parameters.AddWithValue("$dice", game.Mode == GameMode.DiceRoll ? JsonSerializer.Serialize(game.Dice) : (object)DBNull.Value);
         await command.ExecuteNonQueryAsync(ct);
     }
 
@@ -120,6 +129,21 @@ public sealed class SqliteGameRepository : IGameRepository
         await using var command = connection.CreateCommand();
         command.CommandText = $"SELECT {Columns} FROM games WHERE state = 'Finished'";
         return await ReadAllAsync(command, ct);
+    }
+
+    private static void AddColumnIfMissing(SqliteConnection connection, string column, string definition)
+    {
+        using var check = connection.CreateCommand();
+        check.CommandText = "SELECT COUNT(*) FROM pragma_table_info('games') WHERE name = $name";
+        check.Parameters.AddWithValue("$name", column);
+        if (Convert.ToInt64(check.ExecuteScalar()) > 0)
+        {
+            return;
+        }
+
+        using var alter = connection.CreateCommand();
+        alter.CommandText = $"ALTER TABLE games ADD COLUMN {column} {definition}";
+        alter.ExecuteNonQuery();
     }
 
     private SqliteConnection Open()
@@ -151,6 +175,8 @@ public sealed class SqliteGameRepository : IGameRepository
                 AnalysisUrl = reader.IsDBNull(11) ? null : reader.GetString(11),
                 CreatedAt = DateTimeOffset.Parse(reader.GetString(12)),
                 UpdatedAt = DateTimeOffset.Parse(reader.GetString(13)),
+                Mode = Enum.Parse<GameMode>(reader.GetString(14)),
+                Dice = reader.IsDBNull(15) ? new DiceState() : JsonSerializer.Deserialize<DiceState>(reader.GetString(15)) ?? new DiceState(),
             });
         }
 

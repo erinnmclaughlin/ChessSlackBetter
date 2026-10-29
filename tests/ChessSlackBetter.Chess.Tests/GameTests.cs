@@ -70,7 +70,7 @@ public class GameTests
     [Fact]
     public void Rebuilds_from_uci_and_writes_pgn()
     {
-        var game = Game.FromUci(["e2e4", "e7e5", "g1f3"]);
+        var game = Game.Replay(["e2e4", "e7e5", "g1f3"]);
         Assert.Equal("1. e4 e5 2. Nf3", game.MovesSan());
         var pgn = game.ToPgn(new Dictionary<string, string> { ["White"] = "alice", ["Black"] = "bob" });
         Assert.Contains("[White \"alice\"]", pgn);

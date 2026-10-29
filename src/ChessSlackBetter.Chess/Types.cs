@@ -124,6 +124,26 @@ public static class Square
     public static bool IsLight(int square) => (File(square) + Rank(square)) % 2 == 1;
 }
 
+/// <summary>
+/// Puts a piece on a square, or empties it when <see cref="Piece"/> is <see cref="Piece.Empty"/>.
+/// Text form is "e4=B" (FEN letter, uppercase for white) or "e4=-" for an empty square.
+/// </summary>
+public readonly record struct SquareEdit(int Square, Piece Piece)
+{
+    public override string ToString() =>
+        $"{ChessSlackBetter.Chess.Square.Name(Square)}={(Piece.IsEmpty ? '-' : Piece.ToFenChar())}";
+
+    public static SquareEdit Parse(string text)
+    {
+        if (text.Length != 4 || text[2] != '=' || !ChessSlackBetter.Chess.Square.TryParse(text.AsSpan(0, 2), out var square))
+        {
+            throw new FormatException($"Invalid square edit '{text}'.");
+        }
+
+        return new SquareEdit(square, text[3] == '-' ? Piece.Empty : Piece.FromFenChar(text[3]));
+    }
+}
+
 public readonly record struct Move(int From, int To, PieceType Promotion = PieceType.None)
 {
     /// <summary>Long algebraic / UCI notation, e.g. "e2e4" or "e7e8q".</summary>

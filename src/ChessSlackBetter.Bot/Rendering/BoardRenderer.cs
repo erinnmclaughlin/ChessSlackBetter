@@ -36,9 +36,9 @@ public sealed class BoardRenderer : IDisposable
     }
 
     /// <param name="position">The position to draw.</param>
-    /// <param name="lastMove">Highlighted move, if any.</param>
+    /// <param name="highlights">Squares to highlight: the last move's from/to, or the squares a dice roll changed.</param>
     /// <param name="perspective">The side shown at the bottom of the board.</param>
-    public byte[] RenderPng(Position position, Move? lastMove, PieceColor perspective)
+    public byte[] RenderPng(Position position, IReadOnlyCollection<int> highlights, PieceColor perspective)
     {
         using var surface = SKSurface.Create(new SKImageInfo(BoardSize, BoardSize));
         var canvas = surface.Canvas;
@@ -52,7 +52,7 @@ public sealed class BoardRenderer : IDisposable
             var (x, y) = Origin(sq, perspective);
             var rect = SKRect.Create(x, y, SquareSize, SquareSize);
             var light = Square.IsLight(sq);
-            var highlighted = lastMove is { } m && (m.From == sq || m.To == sq);
+            var highlighted = highlights.Contains(sq);
             fill.Shader = null;
             fill.Color = highlighted ? (light ? LastMoveLight : LastMoveDark) : (light ? Light : Dark);
             canvas.DrawRect(rect, fill);

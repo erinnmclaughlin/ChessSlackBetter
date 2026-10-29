@@ -21,7 +21,7 @@ public class ChessBotServiceTests
     public ChessBotServiceTests()
     {
         var options = Options.Create(new ChessBotOptions { PublicBaseUrl = "https://chess.example.com" });
-        _bot = new ChessBotService(_slack, _games, _analysis, options, TimeProvider.System, NullLogger<ChessBotService>.Instance);
+        _bot = new ChessBotService(_slack, _games, _analysis, new FakeDiceJudge(), new FakeDiceRoller(), options, TimeProvider.System, NullLogger<ChessBotService>.Instance);
     }
 
     [Fact]
@@ -230,7 +230,7 @@ public class ChessBotServiceTests
     [Fact]
     public async Task Text_boards_are_used_without_a_public_url()
     {
-        var bot = new ChessBotService(_slack, _games, _analysis, Options.Create(new ChessBotOptions()), TimeProvider.System, NullLogger<ChessBotService>.Instance);
+        var bot = new ChessBotService(_slack, _games, _analysis, new FakeDiceJudge(), new FakeDiceRoller(), Options.Create(new ChessBotOptions()), TimeProvider.System, NullLogger<ChessBotService>.Instance);
         await bot.HandleMessageAsync(new(Channel, Alice, $"<@{FakeSlackApi.BotId}> challenge <@{Bob}> white", NextTs(), null, true));
         var thread = "1000.000100";
         await bot.HandleActionAsync(new(ActionIds.Accept, Bob, Channel, thread));

@@ -1,6 +1,8 @@
 using System.Text.Json.Nodes;
+using ChessSlackBetter.Bot.Dice;
 using ChessSlackBetter.Bot.Games;
 using ChessSlackBetter.Bot.Slack;
+using ChessSlackBetter.Chess;
 
 namespace ChessSlackBetter.Bot.Tests;
 
@@ -62,6 +64,31 @@ public sealed class InMemoryGameRepository : IGameRepository
 
     public Task<IReadOnlyList<GameRecord>> GetFinishedGamesAsync(CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<GameRecord>>(_games.Values.Where(g => g.State == GameState.Finished).ToList());
+}
+
+public sealed class FakeDiceJudge : IDiceJudge
+{
+    public DiceRuling Ruling { get; set; } = Accept(
+        [new DiceEffect("transform", "e4", "", "bishop", "")],
+        [new DiceEffect("remove", "e4", "", "", "")]);
+
+    public List<string> Requests { get; } = [];
+
+    public static DiceRuling Accept(DiceEffect[] success, DiceEffect[] failure, double successBonus = 0, double failureBonus = 0) =>
+        new(true, "ok", success, failure, "Your e4 pawn becomes a bishop", "Your e4 pawn is removed", successBonus, failureBonus, "Simple material trade.");
+
+    public Task<DiceRuling> JudgeAsync(Position position, PieceColor requester, string request, CancellationToken ct = default)
+    {
+        Requests.Add(request);
+        return Task.FromResult(Ruling);
+    }
+}
+
+public sealed class FakeDiceRoller : IDiceRoller
+{
+    public int Next { get; set; } = 20;
+
+    public int RollD20() => Next;
 }
 
 public sealed class FakeAnalysisLinks : IAnalysisLinks
