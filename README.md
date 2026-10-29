@@ -3,29 +3,29 @@
 Play chess against other people in Slack threads. A C# / .NET 10 rebuild of
 [chessbot](https://www.chris-saylor.com/chessbot/).
 
-- `@chessbot challenge @someone` posts a challenge card; each game gets its own thread
+- `@ChessBetterBot challenge @someone` posts a challenge card; each game gets its own thread
 - Board images after every move (from the mover's point of view), with last move and check highlighted
 - Moves in long (`e2e4`, `e1g1`, `c7c8q`) or standard notation (`e4`, `Nf3`, `O-O`, `exd8=Q`)
 - Type moves in the thread without mentioning the bot, if you like
 - Turn notifications, resign / draw offers / abort (buttons or commands)
 - Full rules: castling, en passant, promotion, checkmate, stalemate, threefold repetition, fifty-move rule, insufficient material
 - Finished games are imported to lichess for computer analysis; PGN export any time
-- `@chessbot stats`, `@chessbot leaderboard`, `@chessbot games`
+- `@ChessBetterBot stats`, `@ChessBetterBot leaderboard`, `@ChessBetterBot games`
 
 ## Commands
 
 | Where | Command | |
 |---|---|---|
-| Anywhere | `@chessbot challenge @user [white\|black]` | Challenge someone (random colours by default) |
-| Game thread | `@chessbot accept` / `decline` | Answer a challenge (or use the buttons). The challenger can `decline` to withdraw |
-| Game thread | `@chessbot e2e4`, or just `e4` | Make a move |
-| Game thread | `@chessbot resign` | Resign |
-| Game thread | `@chessbot draw` / `decline draw` | Offer, accept or decline a draw |
-| Game thread | `@chessbot abort` | Cancel before both players have moved (not counted in stats) |
-| Game thread | `@chessbot board` / `pgn` | Re-post the board / export the game |
-| Anywhere | `@chessbot games` | Your open games, with links |
-| Anywhere | `@chessbot stats [@user]` / `leaderboard` | Results |
-| Anywhere | `@chessbot help` | Help |
+| Anywhere | `@ChessBetterBot challenge @user [white\|black]` | Challenge someone (random colours by default) |
+| Game thread | `@ChessBetterBot accept` / `decline` | Answer a challenge (or use the buttons). The challenger can `decline` to withdraw |
+| Game thread | `@ChessBetterBot e2e4`, or just `e4` | Make a move |
+| Game thread | `@ChessBetterBot resign` | Resign |
+| Game thread | `@ChessBetterBot draw` / `decline draw` | Offer, accept or decline a draw |
+| Game thread | `@ChessBetterBot abort` | Cancel before both players have moved (not counted in stats) |
+| Game thread | `@ChessBetterBot board` / `pgn` | Re-post the board / export the game |
+| Anywhere | `@ChessBetterBot games` | Your open games, with links |
+| Anywhere | `@ChessBetterBot stats [@user]` / `leaderboard` | Results |
+| Anywhere | `@ChessBetterBot help` | Help |
 
 ## Project layout
 
@@ -57,7 +57,7 @@ can fetch the board images. For local play, [ngrok](https://ngrok.com/) works: `
    (Environment variables work too: `Slack__BotToken`, `Slack__SigningSecret`, `ChessBot__PublicBaseUrl`.)
 3. **Run.** `dotnet run --project src/ChessSlackBetter.Bot` (listens on http://localhost:5216).
    Slack will verify the event URL once the app is reachable — re-save the URLs in the app config if needed.
-4. **Play.** Invite the bot to a channel (`/invite @chessbot`) and `@chessbot challenge @friend`.
+4. **Play.** Invite the bot to a channel (`/invite @ChessBetterBot`) and `@ChessBetterBot challenge @friend`.
 
 If `PublicBaseUrl` is empty the bot still works but draws boards as text.
 

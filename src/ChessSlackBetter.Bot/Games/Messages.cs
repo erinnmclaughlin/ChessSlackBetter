@@ -19,22 +19,22 @@ public sealed record SlackContent(string Text, JsonArray Blocks);
 public static class Messages
 {
     public const string HelpText = """
-        *ChessBot* — play chess in a Slack thread.
+        *ChessBetterBot* — play chess in a Slack thread.
 
         *Start a game*
-        • `@chessbot challenge @someone` — random colours
-        • `@chessbot challenge @someone white` (or `black`) — pick your colour
-        The challenge gets its own thread; your opponent accepts with the button or `@chessbot accept`.
+        • `@ChessBetterBot challenge @someone` — random colours
+        • `@ChessBetterBot challenge @someone white` (or `black`) — pick your colour
+        The challenge gets its own thread; your opponent accepts with the button or `@ChessBetterBot accept`.
 
         *In the game thread*
-        • Make a move: `@chessbot e2e4`, `@chessbot Nf3`, or just type `e4` / `Nf3` / `O-O`
+        • Make a move: `@ChessBetterBot e2e4`, `@ChessBetterBot Nf3`, or just type `e4` / `Nf3` / `O-O`
           Long notation works for everything: castle with `e1g1`, promote with `c7c8q` (q, r, b or n)
-        • `@chessbot resign` · `@chessbot draw` (offer or accept) · `@chessbot decline draw`
-        • `@chessbot abort` — cancel before both players have moved
-        • `@chessbot board` — show the board again · `@chessbot pgn` — export / analyse
+        • `@ChessBetterBot resign` · `@ChessBetterBot draw` (offer or accept) · `@ChessBetterBot decline draw`
+        • `@ChessBetterBot abort` — cancel before both players have moved
+        • `@ChessBetterBot board` — show the board again · `@ChessBetterBot pgn` — export / analyse
 
         *Anywhere*
-        • `@chessbot games` — your open games · `@chessbot stats [@someone]` · `@chessbot leaderboard`
+        • `@ChessBetterBot games` — your open games · `@ChessBetterBot stats [@someone]` · `@ChessBetterBot leaderboard`
         """;
 
     public static SlackContent ChallengeCard(string challengerId, string opponentId, string whiteId)
@@ -47,7 +47,7 @@ public static class Messages
             Actions(
                 Button("Accept", ActionIds.Accept, style: "primary"),
                 Button("Decline", ActionIds.Decline, style: "danger")),
-            Context($"<@{opponentId}>, you can also reply in the thread with `@chessbot accept` or `@chessbot decline`."),
+            Context($"<@{opponentId}>, you can also reply in the thread with `@ChessBetterBot accept` or `@ChessBetterBot decline`."),
         ]);
     }
 
@@ -89,7 +89,7 @@ public static class Messages
         blocks.Add(Actions(
             Button("Offer draw", ActionIds.OfferDraw),
             Button("Resign", ActionIds.Resign, style: "danger", confirm: ("Resign?", "Are you sure you want to resign this game?", "Resign"))));
-        blocks.Add(Context("Reply with a move like `e4`, `Nf3`, `O-O` or `e7e8q`. `@chessbot help` for more."));
+        blocks.Add(Context("Reply with a move like `e4`, `Nf3`, `O-O` or `e7e8q`. `@ChessBetterBot help` for more."));
 
         return new SlackContent($"<@{toMove}>, it's your move ({colour}).", blocks);
     }

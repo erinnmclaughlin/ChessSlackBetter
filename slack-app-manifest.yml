@@ -1,12 +1,12 @@
 # Create the Slack app from this manifest: https://api.slack.com/apps -> Create New App -> From an app manifest.
 # Replace https://YOUR-PUBLIC-URL with the public HTTPS address of the bot (e.g. your ngrok URL).
 display_information:
-  name: ChessBot
+  name: ChessBetterBot
   description: Play chess against your coworkers in Slack threads.
   background_color: "#b58863"
 features:
   bot_user:
-    display_name: chessbot
+    display_name: ChessBetterBot
     always_online: true
 oauth_config:
   scopes:
