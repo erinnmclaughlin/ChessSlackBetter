@@ -50,6 +50,19 @@ public class EditTests
         Assert.Contains(expectedError, error);
     }
 
+    [Theory]
+    [InlineData("rnbqkbnr/ppp1pppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", "d8=p", "d8d7")]
+    [InlineData("rnbqkbnr/pppppppp/8/8/8/8/PPP1PPPP/RNBQKBNR b KQkq - 0 1", "d1=P", "d1d2")]
+    public void Pawns_on_their_own_back_rank_are_allowed_and_can_move(string fen, string edit, string expectedMove)
+    {
+        // A player's gamble turns the opponent's queen into a pawn; the opponent can then push it.
+        var start = Position.FromFen(fen);
+        Assert.True(Game.ValidateEdits(start, Edits(edit), out var error), error);
+
+        var after = start.WithEdits(Edits(edit));
+        Assert.Contains(after.GenerateLegalMoves(), m => m.ToUci() == expectedMove);
+    }
+
     [Fact]
     public void Rejects_edits_that_leave_your_king_in_check()
     {

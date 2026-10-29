@@ -42,6 +42,7 @@ public sealed class ClaudeDiceJudge(IOptions<AnthropicOptions> options, ILogger<
         Set accepted to false, with a short friendly message saying how to fix it, when:
         - the request doesn't say what happens if the roll fails (ask them to add a downside),
         - it would touch, capture, create or move a king, or is designed to win outright (e.g. instant checkmate),
+        - it would put a pawn on the rank where it promotes (rank 8 for a white pawn, rank 1 for a black pawn),
         - it isn't about this board, or is too vague to turn into effects,
         - it names a piece that isn't on the square they gave (say what is actually there).
         Otherwise follow the player's wording closely and don't invent extra effects.
