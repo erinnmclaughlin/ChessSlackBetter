@@ -5,27 +5,30 @@ using Svg.Skia;
 
 namespace ChessSlackBetter.Bot.Rendering;
 
-/// <summary>Draws a position as a PNG, lichess-style: themed squares, cburnett pieces, last move and check highlighted.</summary>
+/// <summary>Draws a position as a PNG, lichess-style: themed squares and pieces, last move and check highlighted.</summary>
 public sealed class BoardRenderer : IDisposable
 {
     public const int SquareSize = 64;
     public const int BoardSize = SquareSize * 8;
 
-    private readonly Dictionary<Piece, SKSvg> _pieces = new();
+    private readonly Dictionary<(PieceSet, Piece), SKSvg> _pieces = new();
 
     public BoardRenderer()
     {
         var assembly = typeof(BoardRenderer).Assembly;
-        foreach (var color in new[] { PieceColor.White, PieceColor.Black })
+        foreach (var set in PieceSet.All)
         {
-            foreach (var type in new[] { PieceType.King, PieceType.Queen, PieceType.Rook, PieceType.Bishop, PieceType.Knight, PieceType.Pawn })
+            foreach (var color in new[] { PieceColor.White, PieceColor.Black })
             {
-                var name = $"{(color == PieceColor.White ? 'w' : 'b')}{(type == PieceType.Pawn ? "P" : type.SanLetter())}.svg";
-                using var stream = assembly.GetManifestResourceStream($"ChessSlackBetter.Bot.Rendering.Pieces.{name}")
-                                   ?? throw new InvalidOperationException($"Missing embedded piece image {name}.");
-                var svg = new SKSvg();
-                svg.Load(stream);
-                _pieces[new Piece(type, color)] = svg;
+                foreach (var type in new[] { PieceType.King, PieceType.Queen, PieceType.Rook, PieceType.Bishop, PieceType.Knight, PieceType.Pawn })
+                {
+                    var name = $"{(color == PieceColor.White ? 'w' : 'b')}{(type == PieceType.Pawn ? "P" : type.SanLetter())}.svg";
+                    using var stream = assembly.GetManifestResourceStream($"ChessSlackBetter.Bot.Rendering.Pieces.{set.Name}.{name}")
+                                       ?? throw new InvalidOperationException($"Missing embedded piece image {set.Name}/{name}.");
+                    var svg = new SKSvg();
+                    svg.Load(stream);
+                    _pieces[(set, new Piece(type, color))] = svg;
+                }
             }
         }
     }
@@ -34,9 +37,12 @@ public sealed class BoardRenderer : IDisposable
     /// <param name="highlights">Squares to highlight: the last move's from/to, or the squares a dice roll changed.</param>
     /// <param name="perspective">The side shown at the bottom of the board.</param>
     /// <param name="theme">Square colours; <see cref="BoardTheme.Default"/> when null.</param>
-    public byte[] RenderPng(Position position, IReadOnlyCollection<int> highlights, PieceColor perspective, BoardTheme? theme = null)
+    /// <param name="pieces">Piece images; <see cref="PieceSet.Default"/> when null.</param>
+    public byte[] RenderPng(
+        Position position, IReadOnlyCollection<int> highlights, PieceColor perspective, BoardTheme? theme = null, PieceSet? pieces = null)
     {
         theme ??= BoardTheme.Default;
+        pieces ??= PieceSet.Default;
         using var surface = SKSurface.Create(new SKImageInfo(BoardSize, BoardSize));
         var canvas = surface.Canvas;
         using var fill = new SKPaint { IsAntialias = true };
@@ -70,7 +76,7 @@ public sealed class BoardRenderer : IDisposable
             DrawCoordinates(canvas, font, sq, x, y, perspective, light ? theme.Dark : theme.Light);
 
             var piece = position[sq];
-            if (!piece.IsEmpty && _pieces[piece].Picture is { } picture)
+            if (!piece.IsEmpty && _pieces[(pieces, piece)].Picture is { } picture)
             {
                 var scale = SquareSize / picture.CullRect.Width;
                 var matrix = SKMatrix.CreateScale(scale, scale).PostConcat(SKMatrix.CreateTranslation(x, y));

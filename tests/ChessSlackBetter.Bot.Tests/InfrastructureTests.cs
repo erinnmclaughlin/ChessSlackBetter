@@ -282,7 +282,7 @@ public sealed class SqliteGameRepositoryTests : IDisposable
     }
 
     [Fact]
-    public async Task Stores_themes_for_new_and_existing_users()
+    public async Task Stores_preferences_for_new_and_existing_users()
     {
         var users = new SqliteUserRepository(_path);
         var repo = new SqliteGameRepository(_path);
@@ -293,14 +293,16 @@ public sealed class SqliteGameRepositoryTests : IDisposable
             CreatedAt = now, UpdatedAt = now,
         });
 
-        Assert.Null(await users.GetThemeAsync("UA"));
+        Assert.Equal(UserPreferences.None, await users.GetPreferencesAsync("UA"));
         await users.SetThemeAsync("UA", "blue");
-        await users.SetThemeAsync("UNEW", "green");
+        await users.SetPiecesAsync("UA", "fantasy");
+        await users.SetPiecesAsync("UNEW", "chessnut");
         await users.SetThemeAsync("UA", "purple");
 
-        Assert.Equal("purple", await users.GetThemeAsync("UA"));
-        Assert.Equal("green", await users.GetThemeAsync("UNEW"));
-        Assert.Null(await users.GetThemeAsync("UB"));
+        Assert.Equal(new UserPreferences("purple", "fantasy"), await users.GetPreferencesAsync("UA"));
+        Assert.Equal(new UserPreferences(null, "chessnut"), await users.GetPreferencesAsync("UNEW"));
+        Assert.Equal(UserPreferences.None, await users.GetPreferencesAsync("UB"));
+        Assert.Equal(UserPreferences.None, await users.GetPreferencesAsync("UNKNOWN"));
     }
 
     public void Dispose()

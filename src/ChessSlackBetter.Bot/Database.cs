@@ -56,7 +56,8 @@ public static class Database
             CREATE TABLE IF NOT EXISTS users (
                 user_id    TEXT NOT NULL PRIMARY KEY,
                 created_at TEXT NOT NULL,
-                theme      TEXT
+                theme      TEXT,
+                pieces     TEXT
             );
             INSERT OR IGNORE INTO users (user_id, created_at)
             SELECT user_id, MIN(created_at) FROM (

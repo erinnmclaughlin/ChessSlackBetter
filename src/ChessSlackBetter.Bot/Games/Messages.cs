@@ -47,7 +47,7 @@ public static class Messages
         *Anywhere*
         • `@ChessBetterBot games` — your open games · `@ChessBetterBot stats [@someone]`
         • `@ChessBetterBot leaderboard` · `@ChessBetterBot leaderboard dice`
-        • `@ChessBetterBot theme` — pick your board colours, shown when it's your turn
+        • `@ChessBetterBot theme` · `@ChessBetterBot pieces` — pick your board colours and piece set, shown when it's your turn
         """;
 
     public static SlackContent ChallengeCard(string challengerId, string opponentId, string whiteId, GameMode mode = GameMode.Standard)
@@ -99,8 +99,8 @@ public static class Messages
         return new SlackContent(text, [Section(text)]);
     }
 
-    /// <param name="theme">The board theme of the player to move, or null for the default.</param>
-    public static SlackContent Board(GameRecord record, Game game, string? publicBaseUrl, string? theme = null)
+    /// <param name="style">The board preferences of the player to move.</param>
+    public static SlackContent Board(GameRecord record, Game game, string? publicBaseUrl, Users.UserPreferences? style = null)
     {
         var position = game.Current;
         var toMove = record.PlayerFor(position.SideToMove);
@@ -117,7 +117,7 @@ public static class Messages
         }
 
         var blocks = new JsonArray { Section(header) };
-        blocks.Add(BoardBlock(game, position.SideToMove, publicBaseUrl, theme));
+        blocks.Add(BoardBlock(game, position.SideToMove, publicBaseUrl, style));
         blocks.Add(Actions(
             Button("Offer draw", ActionIds.OfferDraw),
             Button("Resign", ActionIds.Resign, style: "danger", confirm: ("Resign?", "Are you sure you want to resign this game?", "Resign"))));
@@ -250,13 +250,18 @@ public static class Messages
         };
     }
 
-    public static string BoardImageUrl(string publicBaseUrl, Game game, PieceColor perspective, string? theme = null)
+    public static string BoardImageUrl(string publicBaseUrl, Game game, PieceColor perspective, Users.UserPreferences? style = null)
     {
         var url = $"{publicBaseUrl.TrimEnd('/')}/board.png?fen={Uri.EscapeDataString(game.Current.ToFen())}" +
                   $"&pov={(perspective == PieceColor.White ? 'w' : 'b')}";
-        if (theme is not null)
+        if (style?.Theme is { } theme)
         {
             url += $"&theme={Uri.EscapeDataString(theme)}";
+        }
+
+        if (style?.Pieces is { } pieces)
+        {
+            url += $"&pieces={Uri.EscapeDataString(pieces)}";
         }
 
         return game.LastMove switch
@@ -267,7 +272,7 @@ public static class Messages
         };
     }
 
-    private static JsonNode BoardBlock(Game game, PieceColor perspective, string? publicBaseUrl, string? theme = null)
+    private static JsonNode BoardBlock(Game game, PieceColor perspective, string? publicBaseUrl, Users.UserPreferences? style = null)
     {
         if (string.IsNullOrWhiteSpace(publicBaseUrl))
         {
@@ -277,7 +282,7 @@ public static class Messages
         return new JsonObject
         {
             ["type"] = "image",
-            ["image_url"] = BoardImageUrl(publicBaseUrl, game, perspective, theme),
+            ["image_url"] = BoardImageUrl(publicBaseUrl, game, perspective, style),
             ["alt_text"] = $"Chess board: {game.Current.ToFen()}",
         };
     }

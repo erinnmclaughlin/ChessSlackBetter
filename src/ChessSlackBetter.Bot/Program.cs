@@ -34,8 +34,8 @@ app.MapSlackEndpoints();
 
 // Slack fetches board images from here. The URL encodes the whole position, so responses can be cached forever.
 // `last` is a UCI move to highlight; `hl` is a comma-separated list of squares (used after dice rolls);
-// `theme` is a BoardTheme name, defaulting to brown.
-app.MapGet("/board.png", (string fen, string? last, string? hl, string? pov, string? theme, BoardRenderer renderer, HttpResponse response) =>
+// `theme` is a BoardTheme name and `pieces` a PieceSet name; unknown or missing names use the defaults.
+app.MapGet("/board.png", (string fen, string? last, string? hl, string? pov, string? theme, string? pieces, BoardRenderer renderer, HttpResponse response) =>
 {
     Position position;
     try
@@ -66,7 +66,7 @@ app.MapGet("/board.png", (string fen, string? last, string? hl, string? pov, str
 
     var perspective = pov == "b" ? PieceColor.Black : PieceColor.White;
     response.Headers.CacheControl = "public, max-age=31536000, immutable";
-    return Results.File(renderer.RenderPng(position, highlights, perspective, BoardTheme.Find(theme)), "image/png");
+    return Results.File(renderer.RenderPng(position, highlights, perspective, BoardTheme.Find(theme), PieceSet.Find(pieces)), "image/png");
 });
 
 app.Run();

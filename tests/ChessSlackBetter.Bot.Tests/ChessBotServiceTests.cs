@@ -1,4 +1,5 @@
 using ChessSlackBetter.Bot.Games;
+using ChessSlackBetter.Bot.Users;
 using ChessSlackBetter.Chess;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -70,19 +71,24 @@ public class ChessBotServiceTests
     }
 
     [Fact]
-    public async Task Board_uses_the_theme_of_the_player_to_move()
+    public async Task Board_uses_the_preferences_of_the_player_to_move()
     {
         await Mention(Bob, "theme Blue");
-        Assert.Equal("blue", _users.Themes[Bob]);
+        await Mention(Bob, "pieces fantasy");
+        Assert.Equal(new UserPreferences("blue", "fantasy"), _users.Preferences[Bob]);
         await Mention(Bob, "theme plaid");
-        Assert.Contains("no `plaid` theme", _slack.Ephemeral[^1].Text);
+        Assert.Contains("no `plaid` board theme", _slack.Ephemeral[^1].Text);
+        await Mention(Bob, "pieces");
+        Assert.Contains("Your piece set is *fantasy*", _slack.Ephemeral[^1].Text);
 
         var thread = await StartChallenge();
         await Click(Bob, ActionIds.Accept, thread);
         Assert.DoesNotContain("theme=", _slack.Posted[^1].Blocks!.ToJsonString());
 
         await Mention(Alice, "e4", thread);
-        Assert.Contains("theme=blue", _slack.Posted[^1].Blocks!.ToJsonString());
+        var url = _slack.Posted[^1].Blocks!.ToJsonString();
+        Assert.Contains("theme=blue", url);
+        Assert.Contains("pieces=fantasy", url);
     }
 
     [Fact]

@@ -66,6 +66,9 @@ public sealed partial class ChessBotService(
             case ThemeCommand theme:
                 await ThemeAsync(message, theme.Name, ct);
                 return;
+            case PiecesCommand pieces:
+                await PiecesAsync(message, pieces.Name, ct);
+                return;
         }
 
         // Everything else is about the game in this thread.
@@ -606,9 +609,9 @@ public sealed partial class ChessBotService(
 
     private async Task PostBoardAsync(GameRecord record, Game game, CancellationToken ct)
     {
-        // The board is drawn in the theme of whoever has to move next.
-        var theme = await users.GetThemeAsync(record.PlayerFor(game.Current.SideToMove), ct);
-        var board = Messages.Board(record, game, Options.PublicBaseUrl, theme);
+        // The board is drawn in the theme and pieces of whoever has to move next.
+        var style = await users.GetPreferencesAsync(record.PlayerFor(game.Current.SideToMove), ct);
+        var board = Messages.Board(record, game, Options.PublicBaseUrl, style);
         await slack.PostMessageAsync(new SlackMessage(record.ChannelId, board.Text, board.Blocks, record.ThreadTs), ct);
     }
 
@@ -665,24 +668,45 @@ public sealed partial class ChessBotService(
             ? LichessClient.AnalysisPositionUrl(game.Current.ToFen())
             : LichessClient.AnalysisBoardUrl(game.MovesSan()));
 
-    private async Task ThemeAsync(IncomingMessage message, string? name, CancellationToken ct)
+    private Task ThemeAsync(IncomingMessage message, string? name, CancellationToken ct) =>
+        PreferenceAsync(message, name, "theme", "board theme",
+            Rendering.BoardTheme.All.Select(t => t.Name).ToList(), Rendering.BoardTheme.Default.Name,
+            p => p.Theme, users.SetThemeAsync, ct);
+
+    private Task PiecesAsync(IncomingMessage message, string? name, CancellationToken ct) =>
+        PreferenceAsync(message, name, "pieces", "piece set",
+            Rendering.PieceSet.All.Select(s => s.Name).ToList(), Rendering.PieceSet.Default.Name,
+            p => p.Pieces, users.SetPiecesAsync, ct);
+
+    /// <summary>Shows a board preference (when <paramref name="name"/> is null) or sets it to one of <paramref name="choices"/>.</summary>
+    private async Task PreferenceAsync(
+        IncomingMessage message,
+        string? name,
+        string command,
+        string label,
+        IReadOnlyList<string> choices,
+        string defaultChoice,
+        Func<UserPreferences, string?> current,
+        Func<string, string, CancellationToken, Task> save,
+        CancellationToken ct)
     {
-        var choices = string.Join(", ", Rendering.BoardTheme.All.Select(t => $"`{t.Name}`"));
+        var options = string.Join(", ", choices.Select(c => $"`{c}`"));
         if (name is null)
         {
-            var current = await users.GetThemeAsync(message.UserId, ct) ?? Rendering.BoardTheme.Default.Name;
-            await EphemeralAsync(message, $"Your board theme is *{current}*. Change it with `@ChessBetterBot theme <name>`: {choices}.", ct);
+            var mine = current(await users.GetPreferencesAsync(message.UserId, ct)) ?? defaultChoice;
+            await EphemeralAsync(message, $"Your {label} is *{mine}*. Change it with `@ChessBetterBot {command} <name>`: {options}.", ct);
             return;
         }
 
-        if (Rendering.BoardTheme.Find(name) is not { } theme)
+        var choice = choices.FirstOrDefault(c => c.Equals(name, StringComparison.OrdinalIgnoreCase));
+        if (choice is null)
         {
-            await EphemeralAsync(message, $"There's no `{name}` theme. Pick one of {choices}.", ct);
+            await EphemeralAsync(message, $"There's no `{name}` {label}. Pick one of {options}.", ct);
             return;
         }
 
-        await users.SetThemeAsync(message.UserId, theme.Name, ct);
-        await EphemeralAsync(message, $"Your board theme is now *{theme.Name}*. You'll see it on the board whenever it's your turn.", ct);
+        await save(message.UserId, choice, ct);
+        await EphemeralAsync(message, $"Your {label} is now *{choice}*. You'll see it on the board whenever it's your turn.", ct);
     }
 
     private Task SaveAsync(GameRecord record, CancellationToken ct)

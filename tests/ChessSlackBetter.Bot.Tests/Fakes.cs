@@ -69,14 +69,20 @@ public sealed class InMemoryGameRepository : IGameRepository
 
 public sealed class InMemoryUserRepository : IUserRepository
 {
-    public Dictionary<string, string> Themes { get; } = new();
+    public Dictionary<string, UserPreferences> Preferences { get; } = new();
 
-    public Task<string?> GetThemeAsync(string userId, CancellationToken ct = default) =>
-        Task.FromResult(Themes.GetValueOrDefault(userId));
+    public Task<UserPreferences> GetPreferencesAsync(string userId, CancellationToken ct = default) =>
+        Task.FromResult(Preferences.GetValueOrDefault(userId) ?? UserPreferences.None);
 
     public Task SetThemeAsync(string userId, string theme, CancellationToken ct = default)
     {
-        Themes[userId] = theme;
+        Preferences[userId] = (Preferences.GetValueOrDefault(userId) ?? UserPreferences.None) with { Theme = theme };
+        return Task.CompletedTask;
+    }
+
+    public Task SetPiecesAsync(string userId, string pieces, CancellationToken ct = default)
+    {
+        Preferences[userId] = (Preferences.GetValueOrDefault(userId) ?? UserPreferences.None) with { Pieces = pieces };
         return Task.CompletedTask;
     }
 }
