@@ -75,6 +75,9 @@ public sealed class FakeDiceJudge : IDiceJudge
     public List<string> Requests { get; } = [];
 
     public static DiceRuling Accept(DiceEffect[] success, DiceEffect[] failure, double successBonus = 0, double failureBonus = 0) =>
+        AcceptOptions([new DiceOption(success, "")], [new DiceOption(failure, "")], successBonus, failureBonus);
+
+    public static DiceRuling AcceptOptions(DiceOption[] success, DiceOption[] failure, double successBonus = 0, double failureBonus = 0) =>
         new(true, "ok", success, failure, "Your e4 pawn becomes a bishop", "Your e4 pawn is removed", successBonus, failureBonus, "Simple material trade.");
 
     public Task<DiceRuling> JudgeAsync(Position position, PieceColor requester, string request, CancellationToken ct = default)
@@ -89,6 +92,10 @@ public sealed class FakeDiceRoller : IDiceRoller
     public int Next { get; set; } = 20;
 
     public int RollD20() => Next;
+
+    public int NextPick { get; set; }
+
+    public int Pick(int count) => Math.Min(NextPick, count - 1);
 }
 
 public sealed class FakeAnalysisLinks : IAnalysisLinks

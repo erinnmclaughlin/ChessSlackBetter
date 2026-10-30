@@ -228,7 +228,7 @@ public sealed class SqliteGameRepositoryTests : IDisposable
 
         var loaded = (await repo.GetAsync("C1", "dice"))!;
         Assert.Equal(GameMode.DiceRoll, loaded.Mode);
-        Assert.Equal(2, loaded.Dice.RollsLeft("UA"));
+        Assert.Equal(ChessSlackBetter.Bot.Dice.DiceLimits.RollsPerPlayer - 1, loaded.Dice.RollsLeft("UA"));
         Assert.Equal(0, loaded.Dice.VetoesLeft("UB"));
         Assert.Equal(17, loaded.Dice.Log.Single().Roll);
         Assert.Equal(PieceType.Bishop, loaded.LoadGame().Current[Square.Parse("e4")].Type);

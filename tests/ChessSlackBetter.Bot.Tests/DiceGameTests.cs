@@ -72,7 +72,7 @@ public class DiceGameTests
         Assert.Equal(new Piece(PieceType.Bishop, PieceColor.White), position[Square.Parse("e4")]);
         Assert.Equal(PieceColor.Black, position.SideToMove);
         Assert.Null(record.Dice.Pending);
-        Assert.Equal(2, record.Dice.RollsLeft(Alice));
+        Assert.Equal(DiceLimits.RollsPerPlayer - 1, record.Dice.RollsLeft(Alice));
         Assert.True(record.Dice.Log.Single().Success);
         Assert.Contains("Rolled *17*", _slack.Updated[^1].Text);
         Assert.Contains("hl=e4", _slack.Posted[^1].Blocks!.ToJsonString());
@@ -157,12 +157,12 @@ public class DiceGameTests
     }
 
     [Fact]
-    public async Task Each_player_gets_three_rolls()
+    public async Task Each_player_gets_five_rolls()
     {
         var thread = await StartAfterE4E5();
-        string[] squares = ["a2", "b2", "c2"];
-        string[] blackMoves = ["Nf6", "Ng8", "Nf6"];
-        for (var i = 0; i < 3; i++)
+        string[] squares = ["a2", "b2", "c2", "g2", "h2"];
+        string[] blackMoves = ["Nf6", "Ng8", "Nf6", "Ng8", "Nf6"];
+        for (var i = 0; i < 5; i++)
         {
             _judge.Ruling = FakeDiceJudge.Accept(
                 [new DiceEffect("transform", squares[i], "", "knight", "")],
@@ -176,12 +176,56 @@ public class DiceGameTests
 
         Assert.Equal(0, (await Record(thread)).Dice.RollsLeft(Alice));
         Assert.Null((await Record(thread)).Dice.Pending);
-        Assert.Contains("used all 3", _slack.Ephemeral[^1].Text);
+        Assert.Contains("used all 5", _slack.Ephemeral[^1].Text);
+    }
+
+    [Fact]
+    public async Task Pointless_gambles_are_allowed_with_easy_odds()
+    {
+        var thread = await StartAfterE4E5();
+        _judge.Ruling = FakeDiceJudge.Accept([], [new DiceEffect("remove", "a1", "", "", "")]);
+
+        await Mention(Alice, "d2 pawn to d2 else I lose my a1 rook", thread);
+        Assert.Equal(2, (await Record(thread)).Dice.Pending!.Target);
+
+        await Click(Alice, ActionIds.Roll, thread);
+        var record = await Record(thread);
+        Assert.Equal(Position.Start[Square.Parse("a1")], record.LoadGame().Current[Square.Parse("a1")]);
+        Assert.Equal(PieceColor.Black, record.LoadGame().Current.SideToMove);
+        Assert.Equal(DiceLimits.RollsPerPlayer - 1, record.Dice.RollsLeft(Alice));
+    }
+
+    [Fact]
+    public async Task Random_gambles_are_priced_on_average_and_picked_when_rolled()
+    {
+        var thread = await StartAfterE4E5();
+        _judge.Ruling = FakeDiceJudge.AcceptOptions(
+        [
+            new DiceOption([new DiceEffect("transform", "d8", "", "pawn", "")], "Black's queen becomes a pawn"),
+            new DiceOption([new DiceEffect("transform", "b8", "", "pawn", "")], "Black's b8 knight becomes a pawn"),
+            // A black pawn on rank 1 is impossible, so this option is dropped from the draw.
+            new DiceOption([new DiceEffect("move", "e5", "a1", "", "")], "nope"),
+        ],
+        [new DiceOption([new DiceEffect("remove", "g1", "", "", "")], "Your g1 knight is removed")]);
+        _roller.NextPick = 1;
+
+        await Mention(Alice, "turn a random one of their pieces into a pawn, if I fail I lose my knight", thread);
+
+        // Gains average (8 + 2) / 2 = 5 against a loss of 3: fair odds are 3/8, so 13.5, rounded to 14+.
+        var pending = (await Record(thread)).Dice.Pending!;
+        Assert.Equal(2, pending.SuccessOutcomes.Count);
+        Assert.Equal(14, pending.Target);
+
+        await Click(Alice, ActionIds.Roll, thread);
+        var position = (await Record(thread)).LoadGame().Current;
+        Assert.Equal(new Piece(PieceType.Pawn, PieceColor.Black), position[Square.Parse("b8")]);
+        Assert.Equal(new Piece(PieceType.Queen, PieceColor.Black), position[Square.Parse("d8")]);
+        Assert.Contains("Black's b8 knight becomes a pawn", _slack.Posted[^2].Text);
     }
 
     [Theory]
-    [InlineData("remove", "e4", "remove", "d2", "wouldn't actually help")]
     [InlineData("transform", "e4", "transform", "d2", "has to cost you")]
+    [InlineData("transform", "e4", "transform", "d8", "has to cost you")]
     [InlineData("remove", "e8", "remove", "e4", "Kings")]
     public async Task Unfair_or_illegal_gambles_are_refused(string successType, string successSquare, string failureType, string failureSquare, string expected)
     {

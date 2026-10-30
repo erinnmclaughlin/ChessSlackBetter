@@ -45,9 +45,11 @@ A variant: normal chess, but on your turn you may gamble on a d20 instead of mov
   and loses `L` on failure should succeed with probability `L / (G + L)`. Claude can shift the values by up to
   ±3 pawns for position (e.g. a new piece that forks the queen). The target is the d20 roll that matches.
 - Only the requester can **Roll** (or say `yes`) or **Cancel** (`no`). Rolling uses your turn.
-- Each player gets **3 rolls** per game. Cancelled or vetoed gambles don't count, and don't use your turn.
+- Each player gets **5 rolls** per game. Cancelled or vetoed gambles don't count, and don't use your turn.
 - The opponent gets **1 veto** per game.
-- Dice can't touch kings, deliver checkmate or stalemate, or leave your own king in check.
+- Dice can't touch kings, deliver checkmate (or set one up within two moves), stalemate, or leave your own king in check.
+- Gambles can be pointless (they just get easy odds) or random ("a random one of their pieces becomes a pawn");
+  random outcomes are priced on their average and picked when the die is rolled.
 - Dice games have their own stats: `@ChessBetterBot leaderboard dice`, and `stats` shows gambles won.
 
 Dice mode needs an [Anthropic API key](https://console.anthropic.com/) (`Anthropic:ApiKey`); everything else

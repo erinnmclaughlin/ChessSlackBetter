@@ -3,7 +3,7 @@ namespace ChessSlackBetter.Bot.Dice;
 public static class DiceLimits
 {
     /// <summary>Accepted (rolled) gambles each player gets per game. Cancelled or vetoed ones don't count.</summary>
-    public const int RollsPerPlayer = 3;
+    public const int RollsPerPlayer = 5;
 
     public const int VetoesPerPlayer = 1;
 }
@@ -16,12 +16,18 @@ public static class DiceLimits
 /// <param name="Color">Colour for add (or to change sides in a transform): white or black.</param>
 public sealed record DiceEffect(string Type, string Square, string ToSquare, string Piece, string Color);
 
-/// <summary>The referee's reading of a gamble request.</summary>
+/// <summary>One way an outcome can play out. Effects may be empty when nothing changes.</summary>
+public sealed record DiceOption(IReadOnlyList<DiceEffect> Effects, string Summary);
+
+/// <summary>
+/// The referee's reading of a gamble request. Each outcome has one or more options; when there are several
+/// (a random request), one is picked uniformly at random when the dice are rolled.
+/// </summary>
 public sealed record DiceRuling(
     bool Accepted,
     string Message,
-    IReadOnlyList<DiceEffect> SuccessEffects,
-    IReadOnlyList<DiceEffect> FailureEffects,
+    IReadOnlyList<DiceOption> SuccessOptions,
+    IReadOnlyList<DiceOption> FailureOptions,
     string SuccessSummary,
     string FailureSummary,
     double SuccessPositionalBonus,
@@ -35,10 +41,10 @@ public sealed class DiceProposal
 
     public required string Request { get; init; }
 
-    /// <summary>Square edits in text form, e.g. "e4=B".</summary>
-    public required List<string> SuccessEdits { get; init; }
+    /// <summary>Possible results of winning; one is picked at random when rolled.</summary>
+    public List<DiceOutcome> SuccessOutcomes { get; init; } = [];
 
-    public required List<string> FailureEdits { get; init; }
+    public List<DiceOutcome> FailureOutcomes { get; init; } = [];
 
     public required string SuccessSummary { get; init; }
 
@@ -52,6 +58,9 @@ public sealed class DiceProposal
     /// <summary>The Slack message showing the proposal, so it can be updated with the outcome.</summary>
     public string? MessageTs { get; set; }
 }
+
+/// <summary>A checked, ready-to-apply result. Square edits in text form, e.g. "e4=B"; empty means nothing changes.</summary>
+public sealed record DiceOutcome(List<string> Edits, string Summary);
 
 public sealed record DiceRollResult(string UserId, string Request, int Target, int Roll, bool Success, string Summary);
 
