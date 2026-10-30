@@ -41,8 +41,9 @@ public static class Messages
         • On your turn, instead of moving, describe a gamble with a reward *and* a penalty:
           `@ChessBetterBot roll turn my e4 pawn into a bishop, if I fail I lose the pawn`
         • The bot works out the fair d20 roll; you then press *Roll* (or say `yes`) or *Cancel* (`no`)
-        • Rolling uses your turn. 3 rolls per player per game; cancelled rolls don't count
-        • Your opponent can veto one gamble per game. Dice can't touch kings or deliver checkmate
+        • Rolling uses your turn. 5 rolls per player per game; cancelled rolls don't count
+        • Your opponent can veto one gamble per game. Dice can't touch kings or set up checkmate within two moves
+        • Random gambles work too, e.g. `turn a random one of their pieces into a pawn, if I fail I lose my knight`
 
         *Anywhere*
         • `@ChessBetterBot games` — your open games · `@ChessBetterBot stats [@someone]`
@@ -174,9 +175,9 @@ public static class Messages
         return new SlackContent(text, [Section(text)]);
     }
 
-    public static string DiceRollOutcome(Dice.DiceProposal proposal, int roll, bool success) => success
-        ? $":tada: Rolled *{roll}* (needed {proposal.Target}+). *Success!* {proposal.SuccessSummary}."
-        : $":skull: Rolled *{roll}* (needed {proposal.Target}+). *Failed.* {proposal.FailureSummary}.";
+    public static string DiceRollOutcome(Dice.DiceProposal proposal, int roll, bool success, string summary) => success
+        ? $":tada: Rolled *{roll}* (needed {proposal.Target}+). *Success!* {summary}."
+        : $":skull: Rolled *{roll}* (needed {proposal.Target}+). *Failed.* {summary}.";
 
     public static SlackContent GameOver(GameRecord record, Game game, string pgn, string analysisUrl, string? publicBaseUrl)
     {

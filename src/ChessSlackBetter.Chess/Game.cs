@@ -70,7 +70,7 @@ public sealed class Game
         {
             string? error;
             var ok = token.StartsWith(PlayedMove.DicePrefix, StringComparison.Ordinal)
-                ? game.TryApplyEdits(token[PlayedMove.DicePrefix.Length..].Split(',').Select(SquareEdit.Parse).ToList(), out error)
+                ? game.TryApplyEdits(token[PlayedMove.DicePrefix.Length..].Split(',', StringSplitOptions.RemoveEmptyEntries).Select(SquareEdit.Parse).ToList(), out error)
                 : game.TryPlay(token, out _, out error);
             if (!ok)
             {
@@ -84,17 +84,11 @@ public sealed class Game
     /// <summary>
     /// Checks whether board edits may replace the current player's move: kings can't be touched or created,
     /// pawns can't land on the back ranks, the player can't leave themself in check, and the opponent must
-    /// still have a legal move (no checkmate or stalemate by dice).
+    /// still have a legal move (no checkmate or stalemate by dice). No edits at all is fine: the turn just passes.
     /// </summary>
     public static bool ValidateEdits(Position position, IReadOnlyList<SquareEdit> edits, [NotNullWhen(false)] out string? error)
     {
         error = null;
-        if (edits.Count == 0)
-        {
-            error = "Nothing on the board would change.";
-            return false;
-        }
-
         foreach (var edit in edits)
         {
             if (position[edit.Square].Type == PieceType.King || edit.Piece.Type == PieceType.King)
@@ -144,7 +138,7 @@ public sealed class Game
             return false;
         }
 
-        _moves.Add(new PlayedMove(default, "{dice " + string.Join(' ', edits) + "}", edits));
+        _moves.Add(new PlayedMove(default, "{" + string.Join(' ', edits.Select(e => e.ToString()).Prepend("dice")) + "}", edits));
         Current = Current.WithEdits(edits);
         _repetitionKeys.Add(Current.RepetitionKey());
         DetectAutomaticEnd();

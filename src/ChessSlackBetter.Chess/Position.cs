@@ -217,6 +217,20 @@ public sealed class Position
 
     public bool IsLegal(Move move) => GenerateLegalMoves().Contains(move);
 
+    /// <summary>True if the side to move can force checkmate within <paramref name="moves"/> of its own moves.</summary>
+    public bool CanForceMate(int moves) =>
+        moves > 0 && GenerateLegalMoves().Any(m => Apply(m).IsMatedWithin(moves - 1));
+
+    /// <summary>
+    /// True if the side to move is checkmated now, or the opponent can force mate within <paramref name="moves"/>
+    /// of its own moves whatever the side to move plays.
+    /// </summary>
+    public bool IsMatedWithin(int moves)
+    {
+        var replies = GenerateLegalMoves();
+        return replies.Count == 0 ? IsInCheck() : replies.All(r => Apply(r).CanForceMate(moves));
+    }
+
     /// <summary>Plays a move without checking legality. Use <see cref="IsLegal"/> first for untrusted input.</summary>
     public Position Apply(Move move)
     {

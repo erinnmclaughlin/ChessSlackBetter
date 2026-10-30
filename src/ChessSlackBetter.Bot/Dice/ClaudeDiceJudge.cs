@@ -37,20 +37,33 @@ public sealed class ClaudeDiceJudge(IOptions<AnthropicOptions> options, ILogger<
         - remove: the piece on `square` is removed
         - add: a new `piece` of `color` appears on the empty `square`
         - move: the piece on `square` teleports to `to_square`, capturing anything there
-        Leave unused fields as empty strings.
+        Leave unused fields as empty strings. Teleports don't have to be legal chess moves.
 
-        Set accepted to false, with a short friendly message saying how to fix it, when:
+        Each outcome is a list of options, each with its own effects and summary. Usually there is exactly one.
+        When the player asks for something random ("a random piece", "a random square", "50/50 between..."), list
+        every possibility as its own option; code picks one uniformly at random when the dice are rolled (repeat an
+        option to weight it). An option's summary says exactly what happens, e.g. "Black's c6 knight becomes a pawn".
+
+        Be generous. Players may make silly, pointless or self-defeating gambles, and that's part of the fun. If
+        winning would change nothing (e.g. "move my d2 pawn to d2"), accept it with an empty effects list. Read loose
+        wording charitably and pick the most sensible meaning rather than asking them to clarify; if they name the
+        wrong square for a piece but it's clear which piece they mean, use the right one.
+
+        Only set accepted to false, with a short friendly message saying how to fix it, when:
         - the request doesn't say what happens if the roll fails (ask them to add a downside),
-        - it would touch, capture, create or move a king, or is designed to win outright (e.g. instant checkmate),
+        - the downside doesn't cost the requester anything or even helps them (e.g. "if I lose, remove my
+          opponent's queen"),
+        - it would touch, capture, create or move a king,
+        - winning would checkmate the opponent straight away or set up a forced checkmate within two moves,
         - it would put a pawn on the rank where it promotes (rank 8 for a white pawn, rank 1 for a black pawn),
-        - it isn't about this board, or is too vague to turn into effects,
-        - it names a piece that isn't on the square they gave (say what is actually there).
+        - it has nothing to do with this chess board.
         Otherwise follow the player's wording closely and don't invent extra effects.
 
-        success_summary and failure_summary: short plain English, e.g. "Your e4 pawn becomes a bishop".
+        success_summary and failure_summary: short plain English for the gamble as a whole, e.g. "Your e4 pawn
+        becomes a bishop" or "A random black piece becomes a pawn".
 
         Positional bonuses: your estimate, in pawns from the requester's point of view, of value beyond raw material
-        (pawn 1, knight 3, bishop 3, rook 5, queen 9) for each outcome. Positive means good for the requester.
+        (pawn 1, knight 3, bishop 3, rook 5, queen 9) for each outcome, averaged over its options. Positive means good for the requester.
         Usually between -1 and 1; go up to +/-3 only for big tactical consequences, such as a new piece immediately
         forking or winning the queen, or a removal that exposes the requester's king. Use 0 when material says it all.
 
@@ -101,8 +114,8 @@ public sealed class ClaudeDiceJudge(IOptions<AnthropicOptions> options, ILogger<
         return new DiceRuling(
             dto.Accepted,
             dto.Message,
-            dto.SuccessEffects,
-            dto.FailureEffects,
+            dto.SuccessOptions,
+            dto.FailureOptions,
             dto.SuccessSummary,
             dto.FailureSummary,
             dto.SuccessPositionalBonus,
@@ -148,6 +161,18 @@ public sealed class ClaudeDiceJudge(IOptions<AnthropicOptions> options, ILogger<
             additionalProperties = false,
         };
 
+        var option = new
+        {
+            type = "object",
+            properties = new
+            {
+                effects = new { type = "array", items = effect },
+                summary = new { type = "string" },
+            },
+            required = new[] { "effects", "summary" },
+            additionalProperties = false,
+        };
+
         return new Dictionary<string, JsonElement>
         {
             ["type"] = JsonSerializer.SerializeToElement("object"),
@@ -155,8 +180,8 @@ public sealed class ClaudeDiceJudge(IOptions<AnthropicOptions> options, ILogger<
             {
                 accepted = new { type = "boolean" },
                 message = new { type = "string" },
-                success_effects = new { type = "array", items = effect },
-                failure_effects = new { type = "array", items = effect },
+                success_options = new { type = "array", items = option },
+                failure_options = new { type = "array", items = option },
                 success_summary = new { type = "string" },
                 failure_summary = new { type = "string" },
                 success_positional_bonus = new { type = "number" },
@@ -165,7 +190,7 @@ public sealed class ClaudeDiceJudge(IOptions<AnthropicOptions> options, ILogger<
             }),
             ["required"] = JsonSerializer.SerializeToElement(new[]
             {
-                "accepted", "message", "success_effects", "failure_effects", "success_summary", "failure_summary",
+                "accepted", "message", "success_options", "failure_options", "success_summary", "failure_summary",
                 "success_positional_bonus", "failure_positional_bonus", "reasoning",
             }),
             ["additionalProperties"] = JsonSerializer.SerializeToElement(false),
@@ -175,8 +200,8 @@ public sealed class ClaudeDiceJudge(IOptions<AnthropicOptions> options, ILogger<
     private sealed record RulingDto(
         bool Accepted,
         string Message,
-        List<DiceEffect> SuccessEffects,
-        List<DiceEffect> FailureEffects,
+        List<DiceOption> SuccessOptions,
+        List<DiceOption> FailureOptions,
         string SuccessSummary,
         string FailureSummary,
         double SuccessPositionalBonus,
@@ -188,9 +213,14 @@ public interface IDiceRoller
 {
     /// <summary>A fair d20 roll, 1 to 20.</summary>
     int RollD20();
+
+    /// <summary>A uniformly random index from 0 to <paramref name="count"/> − 1, for random gamble outcomes.</summary>
+    int Pick(int count);
 }
 
 public sealed class CryptoDiceRoller : IDiceRoller
 {
     public int RollD20() => System.Security.Cryptography.RandomNumberGenerator.GetInt32(1, 21);
+
+    public int Pick(int count) => System.Security.Cryptography.RandomNumberGenerator.GetInt32(count);
 }

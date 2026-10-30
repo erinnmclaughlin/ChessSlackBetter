@@ -73,6 +73,34 @@ public class EditTests
     }
 
     [Fact]
+    public void Empty_edits_just_pass_the_turn_and_replay()
+    {
+        var game = new Game();
+        game.TryPlay("e4", out _, out _);
+
+        Assert.True(game.TryApplyEdits([], out var error), error);
+        Assert.Equal(PieceColor.White, game.Current.SideToMove);
+        Assert.Equal("1. e4 {dice}", game.MovesSan());
+
+        var replayed = Game.Replay(game.Moves.Select(m => m.ToToken()));
+        Assert.Equal(game.Current.ToFen(), replayed.Current.ToFen());
+    }
+
+    [Fact]
+    public void Finds_forced_mates()
+    {
+        // Black's only move is Kh7, then Qh1 is mate. With White to move, Qg7 mates at once.
+        var blackToMove = Position.FromFen("7k/5K2/8/8/8/8/8/6Q1 b - - 0 1");
+        Assert.True(blackToMove.IsMatedWithin(1));
+        Assert.True(Position.FromFen("7k/5K2/8/8/8/8/8/6Q1 w - - 0 1").CanForceMate(1));
+
+        // A lone queen can't mate without its king's help.
+        var loneQueen = Position.FromFen("7k/8/8/8/8/8/8/K5Q1 b - - 0 1");
+        Assert.False(loneQueen.IsMatedWithin(2));
+        Assert.False(Position.Start.CanForceMate(2));
+    }
+
+    [Fact]
     public void Rejects_checkmate_by_dice()
     {
         // A white rook appearing on a8 would mate the boxed-in black king.
