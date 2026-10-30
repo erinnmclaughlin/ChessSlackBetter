@@ -14,6 +14,7 @@ public sealed record PieceSet(string Name)
         new("chessnut"),
         new("fantasy"),
         new("rhosgfx"),
+        new("bolt"),
     ];
 
     public static PieceSet Default => Cburnett;

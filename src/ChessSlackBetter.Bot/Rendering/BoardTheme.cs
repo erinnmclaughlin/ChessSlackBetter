@@ -18,6 +18,8 @@ public sealed record BoardTheme(string Name, SKColor Light, SKColor Dark, SKColo
         new("purple", SKColor.Parse("#9f90b0"), SKColor.Parse("#7d4a8d"), SKColor.Parse("#64b4ff")),
         new("grey", SKColor.Parse("#d9d9d9"), SKColor.Parse("#a3a3a3")),
         new("pink", SKColor.Parse("#f9e1e8"), SKColor.Parse("#d98ba3"), SKColor.Parse("#e63c82")),
+        // Bolt Depot green (#005854), lifted a shade so black pieces stand out on the dark squares.
+        new("bolt", SKColor.Parse("#d7e6e4"), SKColor.Parse("#2b7a75"), SKColor.Parse("#64b4ff")),
     ];
 
     public static BoardTheme Default => Brown;
