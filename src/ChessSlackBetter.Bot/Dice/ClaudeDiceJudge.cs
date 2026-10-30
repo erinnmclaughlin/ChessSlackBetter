@@ -4,6 +4,7 @@ using Anthropic;
 using Anthropic.Models.Beta.Messages;
 using ChessSlackBetter.Bot.Rendering;
 using ChessSlackBetter.Chess;
+using ChessSlackBetter.Chess.ThreePlayer;
 using Microsoft.Extensions.Options;
 
 namespace ChessSlackBetter.Bot.Dice;
@@ -12,6 +13,9 @@ public interface IDiceJudge
 {
     /// <summary>Turns a player's plain-English gamble into effects for both outcomes, or rejects it.</summary>
     Task<DiceRuling> JudgeAsync(Position position, PieceColor requester, string request, CancellationToken ct = default);
+
+    /// <summary>The same for a three-player game.</summary>
+    Task<DiceRuling> JudgeThreePlayerAsync(TriPosition position, TriColor requester, string request, CancellationToken ct = default);
 }
 
 public sealed class AnthropicOptions
@@ -76,9 +80,46 @@ public sealed class ClaudeDiceJudge(IOptions<AnthropicOptions> options, ILogger<
 
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
 
-    private static readonly Dictionary<string, JsonElement> Schema = BuildSchema();
+    private static readonly Dictionary<string, JsonElement> Schema = BuildSchema(["", "white", "black"]);
 
-    public async Task<DiceRuling> JudgeAsync(Position position, PieceColor requester, string request, CancellationToken ct = default)
+    /// <summary>
+    /// The three-player board differs: square names, three colours, two opponents, and where pawns promote.
+    /// Everything else about refereeing is the same as the two-player prompt.
+    /// </summary>
+    private const string ThreePlayerSystemPrompt = SystemPrompt + """
+
+
+        THIS GAME IS THREE-PLAYER CHESS, which changes some of the above. Three sides, white, black and red, play
+        on a 96-square triangular board (the Yalta layout). Each side has a half of 8 files by 4 ranks; the halves
+        meet in the middle. Squares are named with files a-l and ranks 1-12: white has files a-h on ranks 1-4 (rank 1
+        is its back rank), black has l k j i d c b a on ranks 8-5 (rank 8 is its back rank), and red has h g f e i j k l
+        on ranks 12-9 (rank 12 is its back rank). Only those squares exist; e.g. there is no e5 or a9. The a-d files
+        run from white's back rank to black's, e-h from white's to red's, and i-l from black's to red's.
+
+        The requester has two opponents. "Their pieces" or "my opponent" without a colour means the two opponents'
+        pieces together; pick the most sensible reading and say which colour in the summaries. Valid colours are
+        white, black and red. Pawns promote on either opponent's back rank, so never put a pawn on an opponent's back
+        rank (a white pawn can't go on rank 8 or 12, a black pawn on rank 1 or 12, a red pawn on rank 1 or 8). Instead
+        of the two-move rule above: refuse a gamble whose win would checkmate an opponent straight away.
+
+        Positional bonuses are still from the requester's point of view. Code already counts damage to one opponent
+        as worth half as much as your own gain, because it also helps the third player, so don't adjust for that.
+        """;
+
+    private static readonly Dictionary<string, JsonElement> ThreePlayerSchema = BuildSchema(["", "white", "black", "red"]);
+
+    public Task<DiceRuling> JudgeAsync(Position position, PieceColor requester, string request, CancellationToken ct = default) =>
+        AskAsync(SystemPrompt, Schema, DescribeBoard(position, requester, request), request, ct);
+
+    public Task<DiceRuling> JudgeThreePlayerAsync(TriPosition position, TriColor requester, string request, CancellationToken ct = default) =>
+        AskAsync(ThreePlayerSystemPrompt, ThreePlayerSchema, DescribeThreePlayerBoard(position, requester, request), request, ct);
+
+    private async Task<DiceRuling> AskAsync(
+        string systemPrompt,
+        Dictionary<string, JsonElement> schema,
+        string content,
+        string request,
+        CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(options.Value.ApiKey))
         {
@@ -92,13 +133,13 @@ public sealed class ClaudeDiceJudge(IOptions<AnthropicOptions> options, ILogger<
             MaxTokens = 16000,
             Betas = ["server-side-fallback-2026-07-01"],
             Fallbacks = new Default(),
-            System = SystemPrompt,
+            System = systemPrompt,
             OutputConfig = new BetaOutputConfig
             {
                 Effort = Effort.Medium,
-                Format = new BetaJsonOutputFormat { Schema = Schema },
+                Format = new BetaJsonOutputFormat { Schema = schema },
             },
-            Messages = [new BetaUserMessageParam { Content = DescribeBoard(position, requester, request) }],
+            Messages = [new BetaUserMessageParam { Content = content }],
         }, ct);
 
         if (response.StopReason == "refusal")
@@ -125,6 +166,27 @@ public sealed class ClaudeDiceJudge(IOptions<AnthropicOptions> options, ILogger<
 
     private static DiceRuling Rejected(string message) => new(false, message, [], [], "", "", 0, 0, "");
 
+    private static string DescribeThreePlayerBoard(TriPosition position, TriColor requester, string request)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("Board, one half at a time from each side's back rank (two-letter codes: colour w/b/r then piece p/n/b/r/q/k; · is empty):");
+        sb.AppendLine(BoardRenderer.RenderThreePlayerText(position));
+        foreach (var color in TriColors.All)
+        {
+            var pieces = Enumerable.Range(0, TriSquare.Count)
+                .Where(sq => !position[sq].IsEmpty && position[sq].Color == color)
+                .Select(sq => $"{position[sq].Type} {TriSquare.Name(sq)}")
+                .ToList();
+            sb.AppendLine(pieces.Count == 0
+                ? $"{color} has been eliminated and has no pieces."
+                : $"{color} pieces: {string.Join(", ", pieces)}");
+        }
+
+        sb.AppendLine($"The requester plays {requester.Name()} and it is their turn.");
+        sb.AppendLine($"<request>{request}</request>");
+        return sb.ToString();
+    }
+
     private static string DescribeBoard(Position position, PieceColor requester, string request)
     {
         var sb = new StringBuilder();
@@ -144,7 +206,7 @@ public sealed class ClaudeDiceJudge(IOptions<AnthropicOptions> options, ILogger<
         return sb.ToString();
     }
 
-    private static Dictionary<string, JsonElement> BuildSchema()
+    private static Dictionary<string, JsonElement> BuildSchema(string[] colors)
     {
         var effect = new
         {
@@ -155,7 +217,7 @@ public sealed class ClaudeDiceJudge(IOptions<AnthropicOptions> options, ILogger<
                 square = new { type = "string" },
                 to_square = new { type = "string" },
                 piece = new { type = "string", @enum = new[] { "", "pawn", "knight", "bishop", "rook", "queen" } },
-                color = new { type = "string", @enum = new[] { "", "white", "black" } },
+                color = new { type = "string", @enum = colors },
             },
             required = new[] { "type", "square", "to_square", "piece", "color" },
             additionalProperties = false,
