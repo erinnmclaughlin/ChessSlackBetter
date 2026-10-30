@@ -19,6 +19,12 @@ public enum GameMode
 
     /// <summary>ChessDiceRoll: players may gamble on a d20 instead of moving.</summary>
     DiceRoll,
+
+    /// <summary>Three-player chess. These games are <see cref="ThreePlayerRecord"/>s, never <see cref="GameRecord"/>s.</summary>
+    ThreePlayer,
+
+    /// <summary>Three-player chess with dice gambles. Also a <see cref="ThreePlayerRecord"/>.</summary>
+    ThreePlayerDice,
 }
 
 /// <summary>

@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using ChessSlackBetter.Chess;
+using ChessSlackBetter.Chess.ThreePlayer;
 
 namespace ChessSlackBetter.Bot.Games;
 
@@ -9,6 +10,9 @@ public sealed record HelpCommand : BotCommand;
 
 /// <summary>Challenge another user. <see cref="ChallengerColor"/> is null for a random colour.</summary>
 public sealed record ChallengeCommand(string OpponentId, PieceColor? ChallengerColor, GameMode Mode = GameMode.Standard) : BotCommand;
+
+/// <summary>Challenge two other users to three-player chess, optionally with dice. Seats are drawn at random.</summary>
+public sealed record ThreePlayerChallengeCommand(string FirstOpponentId, string SecondOpponentId, bool WithDice = false) : BotCommand;
 
 /// <summary>A dice-game gamble described in plain English.</summary>
 public sealed record RollRequestCommand(string Request) : BotCommand;
@@ -71,6 +75,12 @@ public static partial class CommandParser
         {
             case "help" or "commands" or "?":
                 return new HelpCommand();
+            case "threeplayerchess" or "threeplayer" or "3pchess" or "3p" or "threeplayerdice" or "threeplayerdiceroll" or "3pdice":
+                var opponents = Mention().Matches(trimmed).Select(m => m.Groups[1].Value).Distinct().ToList();
+                return opponents.Count == 2
+                    ? new ThreePlayerChallengeCommand(opponents[0], opponents[1],
+                        verb.Contains("dice") || words.Any(w => w.StartsWith("dice", StringComparison.OrdinalIgnoreCase)))
+                    : new UnknownCommand(trimmed);
             case "challenge" or "play" or "duel" or "vs" or "diceroll" or "chessdiceroll" or "dice":
                 if (mentioned is null)
                 {
@@ -114,14 +124,17 @@ public static partial class CommandParser
             case "stats" or "record":
                 return new StatsCommand(mentioned);
             case "leaderboard" or "top" or "rankings":
-                return new LeaderboardCommand(words.Skip(1).Any(w => w.StartsWith("dice", StringComparison.OrdinalIgnoreCase))
-                    ? GameMode.DiceRoll
-                    : GameMode.Standard);
+                var board = words.Skip(1).FirstOrDefault()?.ToLowerInvariant() ?? "";
+                return new LeaderboardCommand(
+                    board.StartsWith("dice") ? GameMode.DiceRoll :
+                    board is "3pdice" or "threeplayerdice" ? GameMode.ThreePlayerDice :
+                    board is "3p" or "three" or "threeplayer" or "threeplayerchess" ? GameMode.ThreePlayer :
+                    GameMode.Standard);
             case "move" or "m" when words.Length > 1:
                 return new MoveCommand(words[1]);
         }
 
-        if (words.Length == 1 && Notation.LooksLikeMove(words[0]))
+        if (words.Length == 1 && (Notation.LooksLikeMove(words[0]) || TriNotation.LooksLikeMove(words[0])))
         {
             return new MoveCommand(words[0]);
         }

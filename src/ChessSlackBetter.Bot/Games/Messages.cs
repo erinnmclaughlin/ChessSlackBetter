@@ -19,7 +19,7 @@ public static class ActionIds
 public sealed record SlackContent(string Text, JsonArray Blocks);
 
 /// <summary>Builds the Block Kit payloads the bot posts.</summary>
-public static class Messages
+public static partial class Messages
 {
     public const string HelpText = """
         *ChessBetterBot* — play chess in a Slack thread.
@@ -45,9 +45,22 @@ public static class Messages
         • Your opponent can veto one gamble per game. Dice can't touch kings or set up checkmate within two moves
         • Random gambles work too, e.g. `turn a random one of their pieces into a pawn, if I fail I lose my knight`
 
+        *Three-Player Chess* :small_red_triangle:
+        • `@ChessBetterBot threeplayerchess @someone @someone` — seats are random; both have to accept
+        • A triangular board for three: files a–l, ranks 1–12. Turns go white → black → red
+        • Files and diagonals carry on through the middle into the other players' halves. A diagonal through
+          the very centre can go either way, e.g. a bishop on d4 can head for e9 or i5
+        • Pawns head for the middle, then on to the back rank of whichever half they enter, and promote there
+        • Checkmate someone on their turn and they're out; their pieces leave the board. Last player standing wins
+        • No en passant, and kings are never captured. A stalemated player passes; with two left it's a draw
+        • You can resign at any time. A draw needs everyone still playing to agree
+        • `@ChessBetterBot threeplayerdice @someone @someone` — the same, plus ChessDiceRoll gambles. Each player gets
+          5 rolls and 1 veto, and either opponent can veto a gamble. Costing one opponent a piece counts half as much
+          as gaining it yourself, since it helps the third player too
+
         *Anywhere*
         • `@ChessBetterBot games` — your open games · `@ChessBetterBot stats [@someone]`
-        • `@ChessBetterBot leaderboard` · `@ChessBetterBot leaderboard dice`
+        • `@ChessBetterBot leaderboard` · `@ChessBetterBot leaderboard dice` · `@ChessBetterBot leaderboard 3p` · `@ChessBetterBot leaderboard 3pdice`
         """;
 
     public static SlackContent ChallengeCard(string challengerId, string opponentId, string whiteId, GameMode mode = GameMode.Standard)
