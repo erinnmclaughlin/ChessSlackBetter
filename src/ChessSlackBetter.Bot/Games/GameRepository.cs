@@ -21,7 +21,7 @@ public interface IGameRepository
 public sealed class SqliteGameRepository : IGameRepository
 {
     private const string Columns =
-        "channel_id, thread_ts, challenger_id, opponent_id, white_id, black_id, state, moves, draw_offered_by, outcome, termination, analysis_url, created_at, updated_at, mode, dice";
+        "channel_id, thread_ts, challenger_id, opponent_id, white_id, black_id, state, moves, draw_offered_by, outcome, termination, analysis_url, created_at, updated_at, mode, dice, start_position";
 
     private readonly string _connectionString;
 
@@ -61,6 +61,7 @@ public sealed class SqliteGameRepository : IGameRepository
         // Columns added after the first release; older databases get them here.
         AddColumnIfMissing(connection, "mode", "TEXT NOT NULL DEFAULT 'Standard'");
         AddColumnIfMissing(connection, "dice", "TEXT");
+        AddColumnIfMissing(connection, "start_position", "INTEGER");
     }
 
     public async Task<GameRecord?> GetAsync(string channelId, string threadTs, CancellationToken ct = default)
@@ -80,7 +81,7 @@ public sealed class SqliteGameRepository : IGameRepository
         await using var command = connection.CreateCommand();
         command.CommandText = $"""
             INSERT INTO games ({Columns})
-            VALUES ($channel, $thread, $challenger, $opponent, $white, $black, $state, $moves, $draw, $outcome, $termination, $analysis, $created, $updated, $mode, $dice)
+            VALUES ($channel, $thread, $challenger, $opponent, $white, $black, $state, $moves, $draw, $outcome, $termination, $analysis, $created, $updated, $mode, $dice, $start)
             ON CONFLICT (channel_id, thread_ts) DO UPDATE SET
                 state = excluded.state,
                 dice = excluded.dice,
@@ -107,6 +108,7 @@ public sealed class SqliteGameRepository : IGameRepository
         command.Parameters.AddWithValue("$updated", game.UpdatedAt.ToString("O"));
         command.Parameters.AddWithValue("$mode", game.Mode.ToString());
         command.Parameters.AddWithValue("$dice", game.Mode == GameMode.DiceRoll ? JsonSerializer.Serialize(game.Dice) : (object)DBNull.Value);
+        command.Parameters.AddWithValue("$start", (object?)game.Chess960Number ?? DBNull.Value);
         await command.ExecuteNonQueryAsync(ct);
     }
 
@@ -177,6 +179,7 @@ public sealed class SqliteGameRepository : IGameRepository
                 UpdatedAt = DateTimeOffset.Parse(reader.GetString(13)),
                 Mode = Enum.Parse<GameMode>(reader.GetString(14)),
                 Dice = reader.IsDBNull(15) ? new DiceState() : JsonSerializer.Deserialize<DiceState>(reader.GetString(15)) ?? new DiceState(),
+                Chess960Number = reader.IsDBNull(16) ? null : reader.GetInt32(16),
             });
         }
 

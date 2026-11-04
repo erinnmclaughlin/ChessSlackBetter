@@ -53,6 +53,18 @@ public class CommandParserTests
         Assert.IsType<UnknownCommand>(CommandParser.Parse("I want to roll a dice to turn my pawn into a bishop"));
     }
 
+    [Theory]
+    [InlineData("chess960 <@UBOB>")]
+    [InlineData("960 <@UBOB> white")]
+    [InlineData("fischerrandom <@UBOB>")]
+    [InlineData("challenge <@UBOB> 960")]
+    [InlineData("challenge <@UBOB> chess960")]
+    public void Parses_chess960_challenges(string text)
+    {
+        Assert.Equal(GameMode.Chess960, Assert.IsType<ChallengeCommand>(CommandParser.Parse(text)).Mode);
+        Assert.Equal(GameMode.Chess960, Assert.IsType<LeaderboardCommand>(CommandParser.Parse("leaderboard 960")).Mode);
+    }
+
     [Fact]
     public void Challenge_reads_opponent_and_colour()
     {
@@ -232,6 +244,18 @@ public sealed class SqliteGameRepositoryTests : IDisposable
         Assert.Equal(0, loaded.Dice.VetoesLeft("UB"));
         Assert.Equal(17, loaded.Dice.Log.Single().Roll);
         Assert.Equal(PieceType.Bishop, loaded.LoadGame().Current[Square.Parse("e4")].Type);
+        Assert.Null(loaded.Chess960Number);
+
+        var shuffled = new GameRecord
+        {
+            ChannelId = "C1", ThreadTs = "960", ChallengerId = "UA", OpponentId = "UB", WhiteId = "UA", BlackId = "UB",
+            Mode = GameMode.Chess960, Chess960Number = 0, CreatedAt = now, UpdatedAt = now,
+            Moves = ["g2g3"],
+        };
+        await repo.SaveAsync(shuffled);
+        var loaded960 = (await repo.GetAsync("C1", "960"))!;
+        Assert.Equal(0, loaded960.Chess960Number);
+        Assert.Equal("bbqnnrkr/pppppppp/8/8/8/6P1/PPPPPP1P/BBQNNRKR b HFhf - 0 1", loaded960.LoadGame().Current.ToFen());
     }
 
     public void Dispose()

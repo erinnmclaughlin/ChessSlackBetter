@@ -30,7 +30,8 @@ public sealed class Position
         CastlingRights castling,
         int enPassantSquare,
         int halfmoveClock,
-        int fullmoveNumber)
+        int fullmoveNumber,
+        CastlingLayout layout)
     {
         _board = board;
         SideToMove = sideToMove;
@@ -38,6 +39,7 @@ public sealed class Position
         EnPassantSquare = enPassantSquare;
         HalfmoveClock = halfmoveClock;
         FullmoveNumber = fullmoveNumber;
+        Layout = layout;
     }
 
     public static Position Start { get; } = FromFen(StartFen);
@@ -45,6 +47,12 @@ public sealed class Position
     public PieceColor SideToMove { get; }
 
     public CastlingRights Castling { get; }
+
+    /// <summary>
+    /// Where the king and castling rooks started. With a non-standard (Chess960) layout a castling move is stored
+    /// as the king moving onto its own rook ("b1h1"), since the king may travel 0, 1 or several squares.
+    /// </summary>
+    public CastlingLayout Layout { get; }
 
     /// <summary>The square a pawn may capture onto en passant, or -1.</summary>
     public int EnPassantSquare { get; }
@@ -105,27 +113,12 @@ public sealed class Position
             _ => throw new FormatException("FEN side to move must be 'w' or 'b'."),
         };
 
-        var castling = CastlingRights.None;
-        if (parts[2] != "-")
-        {
-            foreach (var c in parts[2])
-            {
-                castling |= c switch
-                {
-                    'K' => CastlingRights.WhiteKingSide,
-                    'Q' => CastlingRights.WhiteQueenSide,
-                    'k' => CastlingRights.BlackKingSide,
-                    'q' => CastlingRights.BlackQueenSide,
-                    _ => throw new FormatException($"Invalid castling character '{c}'."),
-                };
-            }
-        }
-
+        var (castling, layout) = ParseCastling(parts[2], board);
         var enPassant = parts[3] == "-" ? -1 : Square.Parse(parts[3]);
         var halfmove = parts.Length > 4 ? int.Parse(parts[4]) : 0;
         var fullmove = parts.Length > 5 ? int.Parse(parts[5]) : 1;
 
-        var position = new Position(board, side, castling, enPassant, halfmove, fullmove);
+        var position = new Position(board, side, castling, enPassant, halfmove, fullmove, layout);
         if (position.FindKing(PieceColor.White) < 0 || position.FindKing(PieceColor.Black) < 0)
         {
             throw new FormatException("Both sides must have a king.");
@@ -231,18 +224,52 @@ public sealed class Position
         return replies.Count == 0 ? IsInCheck() : replies.All(r => Apply(r).CanForceMate(moves));
     }
 
+    /// <summary>
+    /// True for a castling move: the king moving two files in normal chess, or the king moving onto its own rook
+    /// with a Chess960 layout. <paramref name="kingSide"/> says which way.
+    /// </summary>
+    public bool IsCastling(Move move, out bool kingSide)
+    {
+        var piece = _board[move.From];
+        kingSide = Square.File(move.To) > Square.File(move.From);
+        if (piece.Type != PieceType.King)
+        {
+            return false;
+        }
+
+        return Layout.IsStandard
+            ? Math.Abs(Square.File(move.To) - Square.File(move.From)) == 2 && Square.Rank(move.To) == Square.Rank(move.From)
+            : _board[move.To] == new Piece(PieceType.Rook, piece.Color);
+    }
+
     /// <summary>Plays a move without checking legality. Use <see cref="IsLegal"/> first for untrusted input.</summary>
     public Position Apply(Move move)
     {
         var board = (Piece[])_board.Clone();
         var piece = board[move.From];
-        var captured = board[move.To];
+        var isCastling = IsCastling(move, out var kingSide);
+        var captured = isCastling ? Piece.Empty : board[move.To];
         var isPawn = piece.Type == PieceType.Pawn;
         var fromFile = Square.File(move.From);
         var toFile = Square.File(move.To);
 
-        board[move.To] = move.Promotion == PieceType.None ? piece : new Piece(move.Promotion, piece.Color);
-        board[move.From] = Piece.Empty;
+        if (isCastling)
+        {
+            var rank = Square.Rank(move.From);
+            var rookFrom = Square.At(kingSide ? Layout.KingRookFile : Layout.QueenRookFile, rank);
+            var rook = board[rookFrom];
+
+            // Lift both pieces first: in Chess960 the king or rook can land on the other's starting square.
+            board[move.From] = Piece.Empty;
+            board[rookFrom] = Piece.Empty;
+            board[Square.At(kingSide ? 6 : 2, rank)] = piece;
+            board[Square.At(kingSide ? 5 : 3, rank)] = rook;
+        }
+        else
+        {
+            board[move.To] = move.Promotion == PieceType.None ? piece : new Piece(move.Promotion, piece.Color);
+            board[move.From] = Piece.Empty;
+        }
 
         var isEnPassant = isPawn && move.To == EnPassantSquare && fromFile != toFile && captured.IsEmpty;
         if (isEnPassant)
@@ -250,15 +277,13 @@ public sealed class Position
             board[Square.At(toFile, Square.Rank(move.From))] = Piece.Empty;
         }
 
-        if (piece.Type == PieceType.King && Math.Abs(toFile - fromFile) == 2)
-        {
-            var rank = Square.Rank(move.From);
-            var (rookFrom, rookTo) = toFile == 6 ? (Square.At(7, rank), Square.At(5, rank)) : (Square.At(0, rank), Square.At(3, rank));
-            board[rookTo] = board[rookFrom];
-            board[rookFrom] = Piece.Empty;
-        }
-
         var castling = Castling & ~(CastlingLostBy(move.From) | CastlingLostBy(move.To));
+        if (piece.Type == PieceType.King)
+        {
+            castling &= piece.Color == PieceColor.White
+                ? ~(CastlingRights.WhiteKingSide | CastlingRights.WhiteQueenSide)
+                : ~(CastlingRights.BlackKingSide | CastlingRights.BlackQueenSide);
+        }
 
         var enPassant = -1;
         if (isPawn && Math.Abs(Square.Rank(move.To) - Square.Rank(move.From)) == 2)
@@ -273,7 +298,8 @@ public sealed class Position
             castling,
             enPassant,
             resetsClock ? 0 : HalfmoveClock + 1,
-            SideToMove == PieceColor.Black ? FullmoveNumber + 1 : FullmoveNumber);
+            SideToMove == PieceColor.Black ? FullmoveNumber + 1 : FullmoveNumber,
+            Layout);
     }
 
     /// <summary>
@@ -289,15 +315,17 @@ public sealed class Position
         }
 
         var castling = Castling;
-        foreach (var (right, king, rook, color) in new[]
+        foreach (var (right, rookFile, color) in new[]
                  {
-                     (CastlingRights.WhiteKingSide, 4, 7, PieceColor.White),
-                     (CastlingRights.WhiteQueenSide, 4, 0, PieceColor.White),
-                     (CastlingRights.BlackKingSide, 60, 63, PieceColor.Black),
-                     (CastlingRights.BlackQueenSide, 60, 56, PieceColor.Black),
+                     (CastlingRights.WhiteKingSide, Layout.KingRookFile, PieceColor.White),
+                     (CastlingRights.WhiteQueenSide, Layout.QueenRookFile, PieceColor.White),
+                     (CastlingRights.BlackKingSide, Layout.KingRookFile, PieceColor.Black),
+                     (CastlingRights.BlackQueenSide, Layout.QueenRookFile, PieceColor.Black),
                  })
         {
-            if (board[king] != new Piece(PieceType.King, color) || board[rook] != new Piece(PieceType.Rook, color))
+            var rank = color == PieceColor.White ? 0 : 7;
+            if (board[Square.At(Layout.KingFile, rank)] != new Piece(PieceType.King, color) ||
+                board[Square.At(rookFile, rank)] != new Piece(PieceType.Rook, color))
             {
                 castling &= ~right;
             }
@@ -309,7 +337,8 @@ public sealed class Position
             castling,
             -1,
             0,
-            SideToMove == PieceColor.Black ? FullmoveNumber + 1 : FullmoveNumber);
+            SideToMove == PieceColor.Black ? FullmoveNumber + 1 : FullmoveNumber,
+            Layout);
     }
 
     /// <summary>True when neither side can possibly deliver mate (K v K, K+minor v K, K+B v K+B on same colour).</summary>
@@ -341,16 +370,81 @@ public sealed class Position
                minors.Select(m => Square.IsLight(m.Square)).Distinct().Count() == 1;
     }
 
-    private static CastlingRights CastlingLostBy(int square) => square switch
+    /// <summary>Rights lost when a piece leaves, or is captured on, a rook's starting square. King moves are handled in Apply.</summary>
+    private CastlingRights CastlingLostBy(int square)
     {
-        4 => CastlingRights.WhiteKingSide | CastlingRights.WhiteQueenSide,
-        0 => CastlingRights.WhiteQueenSide,
-        7 => CastlingRights.WhiteKingSide,
-        60 => CastlingRights.BlackKingSide | CastlingRights.BlackQueenSide,
-        56 => CastlingRights.BlackQueenSide,
-        63 => CastlingRights.BlackKingSide,
-        _ => CastlingRights.None,
-    };
+        var lost = CastlingRights.None;
+        if (square == Square.At(Layout.KingRookFile, 0)) lost |= CastlingRights.WhiteKingSide;
+        if (square == Square.At(Layout.QueenRookFile, 0)) lost |= CastlingRights.WhiteQueenSide;
+        if (square == Square.At(Layout.KingRookFile, 7)) lost |= CastlingRights.BlackKingSide;
+        if (square == Square.At(Layout.QueenRookFile, 7)) lost |= CastlingRights.BlackQueenSide;
+        return lost;
+    }
+
+    /// <summary>
+    /// Reads the FEN castling field: "KQkq" (in Chess960, the outermost rook on that side, as in X-FEN) or the
+    /// rooks' file letters as in Shredder-FEN ("HAha", "GBgb"). The king's file is wherever a king with rights stands.
+    /// </summary>
+    private static (CastlingRights Rights, CastlingLayout Layout) ParseCastling(string field, Piece[] board)
+    {
+        var rights = CastlingRights.None;
+        var (kingFile, kingRook, queenRook) = (CastlingLayout.Standard.KingFile, (int?)null, (int?)null);
+        if (field == "-")
+        {
+            return (rights, CastlingLayout.Standard);
+        }
+
+        foreach (var c in field)
+        {
+            var color = char.IsUpper(c) ? PieceColor.White : PieceColor.Black;
+            var rank = color == PieceColor.White ? 0 : 7;
+            var king = Enumerable.Range(0, 8).FirstOrDefault(f => board[Square.At(f, rank)] == new Piece(PieceType.King, color), -1);
+            if (king < 0)
+            {
+                throw new FormatException($"Castling right '{c}' but no king on the back rank.");
+            }
+
+            var rook = new Piece(PieceType.Rook, color);
+            int rookFile;
+            switch (char.ToLowerInvariant(c))
+            {
+                case 'k':
+                    rookFile = Enumerable.Range(king + 1, 7 - king).Reverse().FirstOrDefault(f => board[Square.At(f, rank)] == rook, -1);
+                    break;
+                case 'q':
+                    rookFile = Enumerable.Range(0, king).FirstOrDefault(f => board[Square.At(f, rank)] == rook, -1);
+                    break;
+                case >= 'a' and <= 'h':
+                    rookFile = char.ToLowerInvariant(c) - 'a';
+                    break;
+                default:
+                    throw new FormatException($"Invalid castling character '{c}'.");
+            }
+
+            if (rookFile < 0 || rookFile == king)
+            {
+                // "KQkq" on a board where that rook is gone: the right can't be used, so drop it.
+                continue;
+            }
+
+            var kingSide = rookFile > king;
+            kingFile = king;
+            if (kingSide) kingRook = rookFile; else queenRook = rookFile;
+            rights |= (color, kingSide) switch
+            {
+                (PieceColor.White, true) => CastlingRights.WhiteKingSide,
+                (PieceColor.White, false) => CastlingRights.WhiteQueenSide,
+                (PieceColor.Black, true) => CastlingRights.BlackKingSide,
+                _ => CastlingRights.BlackQueenSide,
+            };
+        }
+
+        var layout = new CastlingLayout(
+            kingFile,
+            kingRook ?? CastlingLayout.Standard.KingRookFile,
+            queenRook ?? CastlingLayout.Standard.QueenRookFile);
+        return (rights, layout);
+    }
 
     private string BoardFen()
     {
@@ -397,11 +491,15 @@ public sealed class Position
             return "-";
         }
 
+        // Chess960 layouts use the rooks' file letters (Shredder-FEN), which lichess and most engines understand.
         var sb = new StringBuilder();
-        if (Castling.HasFlag(CastlingRights.WhiteKingSide)) sb.Append('K');
-        if (Castling.HasFlag(CastlingRights.WhiteQueenSide)) sb.Append('Q');
-        if (Castling.HasFlag(CastlingRights.BlackKingSide)) sb.Append('k');
-        if (Castling.HasFlag(CastlingRights.BlackQueenSide)) sb.Append('q');
+        var standard = Layout.IsStandard;
+        var kingRook = (char)('a' + Layout.KingRookFile);
+        var queenRook = (char)('a' + Layout.QueenRookFile);
+        if (Castling.HasFlag(CastlingRights.WhiteKingSide)) sb.Append(standard ? 'K' : char.ToUpperInvariant(kingRook));
+        if (Castling.HasFlag(CastlingRights.WhiteQueenSide)) sb.Append(standard ? 'Q' : char.ToUpperInvariant(queenRook));
+        if (Castling.HasFlag(CastlingRights.BlackKingSide)) sb.Append(standard ? 'k' : kingRook);
+        if (Castling.HasFlag(CastlingRights.BlackQueenSide)) sb.Append(standard ? 'q' : queenRook);
         return sb.ToString();
     }
 
@@ -587,35 +685,57 @@ public sealed class Position
     {
         var white = SideToMove == PieceColor.White;
         var homeRank = white ? 0 : 7;
-        if (kingSquare != Square.At(4, homeRank))
+        if (kingSquare != Square.At(Layout.KingFile, homeRank))
         {
             return;
         }
 
-        var opponent = SideToMove.Opponent();
         var kingSide = white ? CastlingRights.WhiteKingSide : CastlingRights.BlackKingSide;
         var queenSide = white ? CastlingRights.WhiteQueenSide : CastlingRights.BlackQueenSide;
-        var rook = new Piece(PieceType.Rook, SideToMove);
-
-        if (Castling.HasFlag(kingSide) &&
-            _board[Square.At(7, homeRank)] == rook &&
-            _board[Square.At(5, homeRank)].IsEmpty &&
-            _board[Square.At(6, homeRank)].IsEmpty &&
-            !IsSquareAttacked(kingSquare, opponent) &&
-            !IsSquareAttacked(Square.At(5, homeRank), opponent))
+        if (Castling.HasFlag(kingSide))
         {
-            moves.Add(new Move(kingSquare, Square.At(6, homeRank)));
+            AddCastle(kingSquare, homeRank, Layout.KingRookFile, kingTo: 6, rookTo: 5, moves);
         }
 
-        if (Castling.HasFlag(queenSide) &&
-            _board[Square.At(0, homeRank)] == rook &&
-            _board[Square.At(1, homeRank)].IsEmpty &&
-            _board[Square.At(2, homeRank)].IsEmpty &&
-            _board[Square.At(3, homeRank)].IsEmpty &&
-            !IsSquareAttacked(kingSquare, opponent) &&
-            !IsSquareAttacked(Square.At(3, homeRank), opponent))
+        if (Castling.HasFlag(queenSide))
         {
-            moves.Add(new Move(kingSquare, Square.At(2, homeRank)));
+            AddCastle(kingSquare, homeRank, Layout.QueenRookFile, kingTo: 2, rookTo: 3, moves);
         }
+    }
+
+    /// <summary>
+    /// Every square the king or rook passes over or lands on must be empty (apart from those two pieces), and the
+    /// king can't start in, pass through or land on an attacked square. This covers normal chess and Chess960 alike.
+    /// </summary>
+    private void AddCastle(int kingSquare, int rank, int rookFile, int kingTo, int rookTo, List<Move> moves)
+    {
+        var rookSquare = Square.At(rookFile, rank);
+        if (_board[rookSquare] != new Piece(PieceType.Rook, SideToMove))
+        {
+            return;
+        }
+
+        var kingFile = Square.File(kingSquare);
+        var low = Math.Min(Math.Min(kingFile, kingTo), Math.Min(rookFile, rookTo));
+        var high = Math.Max(Math.Max(kingFile, kingTo), Math.Max(rookFile, rookTo));
+        for (var f = low; f <= high; f++)
+        {
+            var sq = Square.At(f, rank);
+            if (sq != kingSquare && sq != rookSquare && !_board[sq].IsEmpty)
+            {
+                return;
+            }
+        }
+
+        var opponent = SideToMove.Opponent();
+        for (var f = Math.Min(kingFile, kingTo); f <= Math.Max(kingFile, kingTo); f++)
+        {
+            if (IsSquareAttacked(Square.At(f, rank), opponent))
+            {
+                return;
+            }
+        }
+
+        moves.Add(new Move(kingSquare, Layout.IsStandard ? Square.At(kingTo, rank) : rookSquare));
     }
 }
