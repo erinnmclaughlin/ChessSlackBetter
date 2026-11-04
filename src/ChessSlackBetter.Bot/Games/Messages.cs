@@ -45,6 +45,14 @@ public static partial class Messages
         • Your opponent can veto one gamble per game. Dice can't touch kings or set up checkmate within two moves
         • Random gambles work too, e.g. `turn a random one of their pieces into a pawn, if I fail I lose my knight`
 
+        *Chess960* :twisted_rightwards_arrows:
+        • `@ChessBetterBot chess960 @someone` (or `challenge @someone 960`) — Fischer Random: normal rules, but the
+          back-rank pieces start in one of 960 shuffled orders (the same for both sides), so no memorised openings
+        • Bishops are always on opposite colours and the king starts somewhere between the rooks
+        • Castle with `O-O` / `O-O-O`. The king ends on g or c and the rook beside it on f or d, as in normal chess;
+          the squares between must be empty and the king can't pass through check. Typing the king's destination
+          (e.g. `b1g1`) works too
+
         *Three-Player Chess* :small_red_triangle:
         • `@ChessBetterBot threeplayerchess @someone @someone` — seats are random; both have to accept
         • A triangular board for three: files a–l, ranks 1–12. Turns go white → black → red
@@ -60,24 +68,36 @@ public static partial class Messages
 
         *Anywhere*
         • `@ChessBetterBot games` — your open games · `@ChessBetterBot stats [@someone]`
-        • `@ChessBetterBot leaderboard` · `@ChessBetterBot leaderboard dice` · `@ChessBetterBot leaderboard 3p` · `@ChessBetterBot leaderboard 3pdice`
+        • `@ChessBetterBot leaderboard` · `@ChessBetterBot leaderboard dice` · `@ChessBetterBot leaderboard 960` · `@ChessBetterBot leaderboard 3p` · `@ChessBetterBot leaderboard 3pdice`
         """;
 
-    public static SlackContent ChallengeCard(string challengerId, string opponentId, string whiteId, GameMode mode = GameMode.Standard)
+    public const string Chess960Name = "Chess960";
+
+    public static SlackContent ChallengeCard(
+        string challengerId, string opponentId, string whiteId, GameMode mode = GameMode.Standard, int? chess960Number = null)
     {
         var colour = challengerId == whiteId ? "white" : "black";
-        var dice = mode == GameMode.DiceRoll;
-        var text = dice
-            ? $"<@{challengerId}> has challenged <@{opponentId}> to a game of *ChessDiceRoll*!"
-            : $"<@{challengerId}> has challenged <@{opponentId}> to a game of chess!";
+        var (icon, gameName) = mode switch
+        {
+            GameMode.DiceRoll => (":game_die:", "*ChessDiceRoll*"),
+            GameMode.Chess960 => (":twisted_rightwards_arrows:", $"*{Chess960Name}*"),
+            _ => (":chess_pawn:", "chess"),
+        };
+        var text = $"<@{challengerId}> has challenged <@{opponentId}> to a game of {gameName}!";
         var blocks = new JsonArray
         {
-            Section($"{(dice ? ":game_die:" : ":chess_pawn:")} {text}\n<@{challengerId}> will play *{colour}*."),
+            Section($"{icon} {text}\n<@{challengerId}> will play *{colour}*."),
         };
-        if (dice)
+        if (mode == GameMode.DiceRoll)
         {
             blocks.Add(Context("Normal chess, except on your turn you can gamble on a d20 instead of moving. " +
                                $"{DiceLimitsText}. `@ChessBetterBot help` for the rules."));
+        }
+
+        if (chess960Number is { } number)
+        {
+            blocks.Add(Context($"Starting position *#{number}*: `{Chess960BackRankText(number)}`. " +
+                               "Normal rules, but the back-rank pieces are shuffled, so opening theory is out the window."));
         }
 
         blocks.Add(Actions(
@@ -86,6 +106,9 @@ public static partial class Messages
         blocks.Add(Context($"<@{opponentId}>, you can also reply in the thread with `@ChessBetterBot accept` or `@ChessBetterBot decline`."));
         return new SlackContent(text, blocks);
     }
+
+    /// <summary>White's back rank from a to h, spaced out, e.g. "B N R K Q N B R".</summary>
+    private static string Chess960BackRankText(int number) => string.Join(' ', Chess960.BackRank(number).ToCharArray());
 
     private static string DiceLimitsText =>
         $"{Dice.DiceLimits.RollsPerPlayer} rolls and {Dice.DiceLimits.VetoesPerPlayer} veto per player";
@@ -97,6 +120,10 @@ public static partial class Messages
         if (record.Mode == GameMode.DiceRoll)
         {
             players = $":game_die: *ChessDiceRoll* · {players}";
+        }
+        else if (record.Chess960Number is { } number)
+        {
+            players = $":twisted_rightwards_arrows: *{Chess960Name}* #{number} · {players}";
         }
 
         var text = record.State switch
@@ -141,6 +168,11 @@ public static partial class Messages
                 $":game_die: Rolls left: <@{record.WhiteId}> {dice.RollsLeft(record.WhiteId)} · <@{record.BlackId}> {dice.RollsLeft(record.BlackId)}" +
                 $"  ·  Vetoes left: <@{record.WhiteId}> {dice.VetoesLeft(record.WhiteId)} · <@{record.BlackId}> {dice.VetoesLeft(record.BlackId)}\n" +
                 "Move, or gamble: `@ChessBetterBot roll <what you want>, if I fail <penalty>`"));
+        }
+        else if (record.Chess960Number is { } number)
+        {
+            blocks.Add(Context($":twisted_rightwards_arrows: {Chess960Name} #{number}. Castle with `O-O` / `O-O-O`: the king always ends on g or c " +
+                               "and the rook beside it on f or d, however far they start from there."));
         }
         else
         {

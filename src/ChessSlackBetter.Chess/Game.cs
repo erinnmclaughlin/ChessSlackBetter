@@ -38,17 +38,21 @@ public sealed record PlayedMove(Move Move, string San, IReadOnlyList<SquareEdit>
     public string ToToken() => Edits is null ? Move.ToUci() : DicePrefix + string.Join(',', Edits);
 }
 
-/// <summary>A game from the standard starting position: its moves and how (or whether) it ended.</summary>
+/// <summary>A game from a starting position (normally the standard one): its moves and how (or whether) it ended.</summary>
 public sealed class Game
 {
     private readonly List<PlayedMove> _moves = [];
     private readonly List<string> _repetitionKeys = [];
 
-    public Game()
+    /// <param name="start">Defaults to the standard starting position; Chess960 games pass theirs.</param>
+    public Game(Position? start = null)
     {
-        Current = Position.Start;
+        Start = start ?? Position.Start;
+        Current = Start;
         _repetitionKeys.Add(Current.RepetitionKey());
     }
+
+    public Position Start { get; }
 
     public Position Current { get; private set; }
 
@@ -63,9 +67,9 @@ public sealed class Game
     public bool IsOver => Outcome != GameOutcome.Ongoing;
 
     /// <summary>Rebuilds a game from stored tokens (see <see cref="PlayedMove.ToToken"/>), e.g. "e2e4", "dice:e4=B".</summary>
-    public static Game Replay(IEnumerable<string> tokens)
+    public static Game Replay(IEnumerable<string> tokens, Position? start = null)
     {
-        var game = new Game();
+        var game = new Game(start);
         foreach (var token in tokens)
         {
             string? error;
@@ -213,6 +217,12 @@ public sealed class Game
         foreach (var (key, value) in headers ?? new Dictionary<string, string>())
         {
             sb.Append('[').Append(key).Append(" \"").Append(value.Replace("\\", "\\\\").Replace("\"", "\\\"")).AppendLine("\"]");
+        }
+
+        if (Start.ToFen() != Position.StartFen)
+        {
+            sb.AppendLine("[SetUp \"1\"]");
+            sb.Append("[FEN \"").Append(Start.ToFen()).AppendLine("\"]");
         }
 
         sb.Append("[Result \"").Append(ResultString).AppendLine("\"]");

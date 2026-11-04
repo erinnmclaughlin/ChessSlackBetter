@@ -31,7 +31,10 @@ public sealed class LichessClient(HttpClient http, ILogger<LichessClient> logger
     public static string AnalysisBoardUrl(string sanMoves) =>
         "https://lichess.org/analysis/pgn/" + Uri.EscapeDataString(sanMoves);
 
-    /// <summary>A lichess analysis board starting from a position (lichess uses underscores for the FEN's spaces).</summary>
-    public static string AnalysisPositionUrl(string fen) =>
-        "https://lichess.org/analysis/" + fen.Replace(' ', '_');
+    /// <summary>
+    /// A lichess analysis board starting from a position (lichess uses underscores for the FEN's spaces).
+    /// <paramref name="variant"/> is a lichess variant key such as "chess960", or null for normal chess.
+    /// </summary>
+    public static string AnalysisPositionUrl(string fen, string? variant = null) =>
+        "https://lichess.org/analysis/" + (variant is null ? "" : variant + "/") + fen.Replace(' ', '_');
 }

@@ -37,9 +37,7 @@ public static partial class Notation
         if (Castle().IsMatch(s))
         {
             var kingSide = s.Count(c => c is 'O' or 'o' or '0') == 2;
-            var king = position.FindKing(position.SideToMove);
-            var to = king + (kingSide ? 2 : -2);
-            var castle = legal.Where(m => m.From == king && m.To == to && position[king].Type == PieceType.King).ToList();
+            var castle = legal.Where(m => position.IsCastling(m, out var side) && side == kingSide).ToList();
             if (castle.Count == 0)
             {
                 error = $"You can't castle {(kingSide ? "king" : "queen")}side right now.";
@@ -57,6 +55,26 @@ public static partial class Notation
             var to = Square.Parse(lan.Groups[2].Value);
             var promotion = lan.Groups[3].Success ? PieceTypes.FromLetter(lan.Groups[3].Value[0])!.Value : PieceType.None;
             var candidates = legal.Where(m => m.From == from && m.To == to).ToList();
+            if (!position.Layout.IsStandard)
+            {
+                // Chess960 castles are stored king-onto-rook, but people naturally type where the king ends up.
+                var castles = legal.Where(m => m.From == from && position.IsCastling(m, out var kingSide) &&
+                                               to == Square.At(kingSide ? 6 : 2, Square.Rank(from))).ToList();
+                // When the rook already stands on g or c, the castle itself is the direct match and isn't ambiguous.
+                if (castles.Count > 0 && candidates.Any(m => !position.IsCastling(m, out _)))
+                {
+                    position.IsCastling(castles[0], out var kingSide);
+                    error = $"`{text.Trim()}` could be castling or just a king move. Say `{(kingSide ? "O-O" : "O-O-O")}` to castle " +
+                            $"or `K{Square.Name(to)}` to only move the king.";
+                    return false;
+                }
+
+                if (candidates.Count == 0 || castles.Count > 0)
+                {
+                    candidates = castles;
+                }
+            }
+
             return PickPromotion(position, candidates, promotion, s, out move, out error);
         }
 
@@ -95,9 +113,9 @@ public static partial class Notation
         var piece = position[move.From];
         var sb = new StringBuilder();
 
-        if (piece.Type == PieceType.King && Math.Abs(Square.File(move.To) - Square.File(move.From)) == 2)
+        if (position.IsCastling(move, out var kingSide))
         {
-            sb.Append(Square.File(move.To) == 6 ? "O-O" : "O-O-O");
+            sb.Append(kingSide ? "O-O" : "O-O-O");
         }
         else
         {

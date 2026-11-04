@@ -81,7 +81,8 @@ public static partial class CommandParser
                     ? new ThreePlayerChallengeCommand(opponents[0], opponents[1],
                         verb.Contains("dice") || words.Any(w => w.StartsWith("dice", StringComparison.OrdinalIgnoreCase)))
                     : new UnknownCommand(trimmed);
-            case "challenge" or "play" or "duel" or "vs" or "diceroll" or "chessdiceroll" or "dice":
+            case "challenge" or "play" or "duel" or "vs" or "diceroll" or "chessdiceroll" or "dice" or
+                "chess960" or "960" or "fischerrandom" or "fischer" or "freestyle":
                 if (mentioned is null)
                 {
                     return new UnknownCommand(trimmed);
@@ -93,7 +94,10 @@ public static partial class CommandParser
                 var mode = verb is "diceroll" or "chessdiceroll" or "dice" ||
                            words.Any(w => w.Equals("diceroll", StringComparison.OrdinalIgnoreCase))
                     ? GameMode.DiceRoll
-                    : GameMode.Standard;
+                    : verb is "chess960" or "960" or "fischerrandom" or "fischer" or "freestyle" ||
+                      words.Any(w => w is "960" || w.Equals("chess960", StringComparison.OrdinalIgnoreCase))
+                        ? GameMode.Chess960
+                        : GameMode.Standard;
                 return new ChallengeCommand(mentioned, color, mode);
             case "roll" or "gamble" when words.Length > 1:
                 return new RollRequestCommand(trimmed[words[0].Length..].Trim());
@@ -127,6 +131,7 @@ public static partial class CommandParser
                 var board = words.Skip(1).FirstOrDefault()?.ToLowerInvariant() ?? "";
                 return new LeaderboardCommand(
                     board.StartsWith("dice") ? GameMode.DiceRoll :
+                    board is "960" or "chess960" or "fischer" or "fischerrandom" or "freestyle" ? GameMode.Chess960 :
                     board is "3pdice" or "threeplayerdice" ? GameMode.ThreePlayerDice :
                     board is "3p" or "three" or "threeplayer" or "threeplayerchess" ? GameMode.ThreePlayer :
                     GameMode.Standard);

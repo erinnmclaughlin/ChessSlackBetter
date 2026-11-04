@@ -25,6 +25,9 @@ public enum GameMode
 
     /// <summary>Three-player chess with dice gambles. Also a <see cref="ThreePlayerRecord"/>.</summary>
     ThreePlayerDice,
+
+    /// <summary>Chess960 (Fischer Random): normal rules from a shuffled back rank, see <see cref="GameRecord.Chess960Number"/>.</summary>
+    Chess960,
 }
 
 /// <summary>
@@ -38,6 +41,9 @@ public sealed class GameRecord
     public required string ThreadTs { get; init; }
 
     public GameMode Mode { get; init; } = GameMode.Standard;
+
+    /// <summary>Which of the 960 starting positions a <see cref="GameMode.Chess960"/> game uses; null for other modes.</summary>
+    public int? Chess960Number { get; init; }
 
     /// <summary>Rolls, vetoes and the pending gamble. Only used in <see cref="GameMode.DiceRoll"/> games.</summary>
     public Dice.DiceState Dice { get; set; } = new();
@@ -82,7 +88,7 @@ public sealed class GameRecord
     /// <summary>Replays the stored moves, including any result that isn't implied by the moves themselves.</summary>
     public Game LoadGame()
     {
-        var game = Game.Replay(Moves);
+        var game = Game.Replay(Moves, Chess960Number is { } number ? Chess.Chess960.StartPosition(number) : null);
         if (!game.IsOver)
         {
             switch (Termination)

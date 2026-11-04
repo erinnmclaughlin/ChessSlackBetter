@@ -23,6 +23,7 @@ Play chess against other people in Slack threads. A C# / .NET 10 rebuild of
 | Game thread | `@ChessBetterBot draw` / `decline draw` | Offer, accept or decline a draw |
 | Game thread | `@ChessBetterBot abort` | Cancel before both players have moved (not counted in stats) |
 | Game thread | `@ChessBetterBot board` / `pgn` | Re-post the board / export the game |
+| Anywhere | `@ChessBetterBot chess960 @user [white\|black]` | Challenge someone to [Chess960](#chess960) |
 | Anywhere | `@ChessBetterBot threeplayerchess @user @user` | Challenge two people to [Three-Player Chess](#three-player-chess) |
 | Anywhere | `@ChessBetterBot games` | Your open games, with links |
 | Anywhere | `@ChessBetterBot stats [@user]` / `leaderboard` | Results |
@@ -55,6 +56,21 @@ A variant: normal chess, but on your turn you may gamble on a d20 instead of mov
 
 Dice mode needs an [Anthropic API key](https://console.anthropic.com/) (`Anthropic:ApiKey`); everything else
 works without one.
+
+## Chess960
+
+`@ChessBetterBot chess960 @user` (also `960`, `fischerrandom`, or `challenge @user 960`) starts a game of
+[Fischer Random](https://en.wikipedia.org/wiki/Fischer_random_chess): normal rules, but the back-rank pieces start
+in one of 960 shuffled orders, mirrored for both sides. It takes opening preparation out of the game.
+
+- The challenge card shows the position number and back rank. Every shuffle except #518 (the normal start) can come up.
+- Bishops are always on opposite colours and the king always starts between the rooks.
+- Castle with `O-O` / `O-O-O`. The king ends on g or c and its rook on f or d, as in normal chess, however far they
+  start from there. Every square either piece crosses must be empty, and the king can't start in, pass through, or
+  land in check. Moves are stored king-onto-rook (`b1h1`); typing the king's destination (`b1g1`) also works,
+  and if that could also be a plain king step the bot asks you to say `O-O` or `Kg1`.
+- Finished games are imported to lichess as Chess960 (the PGN carries the starting FEN).
+- `@ChessBetterBot leaderboard 960` has its own table; `stats` shows Chess960 results separately.
 
 ## Three-Player Chess
 

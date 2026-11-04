@@ -291,8 +291,16 @@ public sealed partial class ChessBotService(
         var whiteId = challengerIsWhite ? message.UserId : challenge.OpponentId;
         var blackId = challengerIsWhite ? challenge.OpponentId : message.UserId;
 
+        // Any shuffle but 518, which is just the normal starting position.
+        int? chess960Number = null;
+        if (challenge.Mode == GameMode.Chess960)
+        {
+            var n = Random.Shared.Next(Chess960.Count - 1);
+            chess960Number = n >= Chess960.StandardNumber ? n + 1 : n;
+        }
+
         // The challenge is always a new top-level message so each game gets a thread of its own.
-        var card = Messages.ChallengeCard(message.UserId, challenge.OpponentId, whiteId, challenge.Mode);
+        var card = Messages.ChallengeCard(message.UserId, challenge.OpponentId, whiteId, challenge.Mode, chess960Number);
         var ts = await slack.PostMessageAsync(new SlackMessage(message.ChannelId, card.Text, card.Blocks), ct);
 
         var now = time.GetUtcNow();
@@ -301,6 +309,7 @@ public sealed partial class ChessBotService(
             ChannelId = message.ChannelId,
             ThreadTs = ts,
             Mode = challenge.Mode,
+            Chess960Number = chess960Number,
             ChallengerId = message.UserId,
             OpponentId = challenge.OpponentId,
             WhiteId = whiteId,
@@ -547,12 +556,13 @@ public sealed partial class ChessBotService(
     {
         var standard = (await StandingsAsync(GameMode.Standard, ct)).FirstOrDefault(s => s.UserId == userId);
         var diceGames = (await StandingsAsync(GameMode.DiceRoll, ct)).FirstOrDefault(s => s.UserId == userId);
+        var chess960 = (await StandingsAsync(GameMode.Chess960, ct)).FirstOrDefault(s => s.UserId == userId);
         var threePlayer = (await ThreePlayerStandingsAsync(withDice: false, ct)).FirstOrDefault(s => s.UserId == userId && s.Games > 0);
         var threePlayerDice = (await ThreePlayerStandingsAsync(withDice: true, ct)).FirstOrDefault(s => s.UserId == userId && s.Games > 0);
         string Line(Standing s) => $"*{s.Wins}* wins, *{s.Losses}* losses, *{s.Draws}* draws ({s.Games} games)";
 
         var sb = new StringBuilder();
-        if (standard is null && diceGames is null && threePlayer is null && threePlayerDice is null)
+        if (standard is null && diceGames is null && chess960 is null && threePlayer is null && threePlayerDice is null)
         {
             sb.Append($"<@{userId}> hasn't finished any games yet.");
         }
@@ -568,6 +578,11 @@ public sealed partial class ChessBotService(
             {
                 sb.AppendLine($":game_die: ChessDiceRoll: {Line(diceGames)}");
                 sb.AppendLine($":game_die: Gambles: *{diceGames.RollsWon}* of {diceGames.RollsTaken} won");
+            }
+
+            if (chess960 is not null)
+            {
+                sb.AppendLine($":twisted_rightwards_arrows: {Messages.Chess960Name}: {Line(chess960)}");
             }
 
             if (threePlayer is not null)
@@ -597,14 +612,22 @@ public sealed partial class ChessBotService(
         var dice = mode == GameMode.DiceRoll;
         if (standings.Count == 0)
         {
-            var none = dice ? "No ChessDiceRoll games have been finished yet." : "No games have been finished yet.";
+            var none = mode switch
+            {
+                GameMode.DiceRoll => "No ChessDiceRoll games have been finished yet.",
+                GameMode.Chess960 => $"No {Messages.Chess960Name} games have been finished yet.",
+                _ => "No games have been finished yet.",
+            };
             await slack.PostMessageAsync(new SlackMessage(message.ChannelId, none, ThreadTs: message.ThreadTs), ct);
             return;
         }
 
-        var sb = new StringBuilder(dice
-            ? ":game_die: *ChessDiceRoll Leaderboard* (1 point per win, ½ per draw)\n"
-            : ":trophy: *Leaderboard* (1 point per win, ½ per draw)\n");
+        var sb = new StringBuilder(mode switch
+        {
+            GameMode.DiceRoll => ":game_die: *ChessDiceRoll Leaderboard* (1 point per win, ½ per draw)\n",
+            GameMode.Chess960 => $":twisted_rightwards_arrows: *{Messages.Chess960Name} Leaderboard* (1 point per win, ½ per draw)\n",
+            _ => ":trophy: *Leaderboard* (1 point per win, ½ per draw)\n",
+        });
         var rank = 1;
         foreach (var s in standings.Take(10))
         {
@@ -685,7 +708,7 @@ public sealed partial class ChessBotService(
     {
         // Dice games can't be replayed as normal chess, so lichess gets only the final position (see AnalysisUrl).
         if (Options.ImportFinishedGamesToLichess && game.Moves.Count > 0 && game.Termination != Termination.Abandoned &&
-            record.Mode == GameMode.Standard)
+            record.Mode is GameMode.Standard or GameMode.Chess960)
         {
             record.AnalysisUrl = await analysis.ImportAsync(await BuildPgnAsync(record, game, ct), ct);
             if (record.AnalysisUrl is not null)
@@ -721,18 +744,31 @@ public sealed partial class ChessBotService(
             ["White"] = await slack.GetUserNameAsync(record.WhiteId, ct),
             ["Black"] = await slack.GetUserNameAsync(record.BlackId, ct),
         };
-        if (record.Mode == GameMode.DiceRoll)
+        switch (record.Mode)
         {
-            headers["Variant"] = "ChessDiceRoll";
+            case GameMode.DiceRoll:
+                headers["Variant"] = "ChessDiceRoll";
+                break;
+            case GameMode.Chess960:
+                // Lichess needs exactly "Chess960" here to import the game; Game.ToPgn adds the starting FEN.
+                headers["Variant"] = "Chess960";
+                break;
         }
 
         return game.ToPgn(headers);
     }
 
+    /// <summary>
+    /// The imported lichess game if there is one. Otherwise a lichess board: the move list for normal chess, or just
+    /// the current position for dice games (which lichess can't replay) and Chess960 (whose start the URL can't carry).
+    /// </summary>
     private static string AnalysisUrl(GameRecord record, Game game) =>
-        record.AnalysisUrl ?? (record.Mode == GameMode.DiceRoll
-            ? LichessClient.AnalysisPositionUrl(game.Current.ToFen())
-            : LichessClient.AnalysisBoardUrl(game.MovesSan()));
+        record.AnalysisUrl ?? record.Mode switch
+        {
+            GameMode.DiceRoll => LichessClient.AnalysisPositionUrl(game.Current.ToFen()),
+            GameMode.Chess960 => LichessClient.AnalysisPositionUrl(game.Current.ToFen(), "chess960"),
+            _ => LichessClient.AnalysisBoardUrl(game.MovesSan()),
+        };
 
     private Task SaveAsync(GameRecord record, CancellationToken ct)
     {
