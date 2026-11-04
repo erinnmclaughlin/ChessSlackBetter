@@ -118,6 +118,7 @@ public static class Messages
 
         var blocks = new JsonArray { Section(header) };
         blocks.Add(BoardBlock(game, position.SideToMove, publicBaseUrl, style));
+        blocks.Add(Context(MaterialText(record, position)));
         blocks.Add(Actions(
             Button("Offer draw", ActionIds.OfferDraw),
             Button("Resign", ActionIds.Resign, style: "danger", confirm: ("Resign?", "Are you sure you want to resign this game?", "Resign"))));
@@ -285,6 +286,28 @@ public static class Messages
             ["image_url"] = BoardImageUrl(publicBaseUrl, game, perspective, style),
             ["alt_text"] = $"Chess board: {game.Current.ToFen()}",
         };
+    }
+
+    /// <summary>e.g. "Captured: @white ♟♟♞ (5) · @black ♙ (1) · @white +4".</summary>
+    public static string MaterialText(GameRecord record, Position position)
+    {
+        var material = Material.Of(position);
+
+        string Captures(PieceColor capturer)
+        {
+            var victim = capturer.Opponent();
+            var pieces = material.Lost(victim);
+            var glyphs = pieces.Count == 0 ? "nothing" : string.Concat(pieces.Select(t => Material.Glyph(t, victim)));
+            return $"<@{record.PlayerFor(capturer)}> {glyphs} ({pieces.Sum(Material.Value)})";
+        }
+
+        var advantage = material.Advantage switch
+        {
+            > 0 => $"*<@{record.WhiteId}> +{material.Advantage}*",
+            < 0 => $"*<@{record.BlackId}> +{-material.Advantage}*",
+            _ => "*Material is even*",
+        };
+        return $":scales: Captured: {Captures(PieceColor.White)} · {Captures(PieceColor.Black)} · {advantage}";
     }
 
     private static string? LastMoveText(Game game)
