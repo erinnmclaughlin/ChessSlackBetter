@@ -23,6 +23,8 @@ Play chess against other people in Slack threads. A C# / .NET 10 rebuild of
 | Game thread | `@ChessBetterBot draw` / `decline draw` | Offer, accept or decline a draw |
 | Game thread | `@ChessBetterBot abort` | Cancel before both players have moved (not counted in stats) |
 | Game thread | `@ChessBetterBot board` / `pgn` | Re-post the board / export the game |
+| Anywhere | `@ChessBetterBot chess960 @user [white\|black]` | Challenge someone to [Chess960](#chess960) |
+| Anywhere | `@ChessBetterBot threeplayerchess @user @user` | Challenge two people to [Three-Player Chess](#three-player-chess) |
 | Anywhere | `@ChessBetterBot games` | Your open games, with links |
 | Anywhere | `@ChessBetterBot stats [@user]` / `leaderboard` | Results |
 | Anywhere | `@ChessBetterBot theme [brown\|blue\|green\|purple\|grey\|pink\|bolt]` | Show or set your board colours, used for the board on your turn |
@@ -47,13 +49,62 @@ A variant: normal chess, but on your turn you may gamble on a d20 instead of mov
   and loses `L` on failure should succeed with probability `L / (G + L)`. Claude can shift the values by up to
   ±3 pawns for position (e.g. a new piece that forks the queen). The target is the d20 roll that matches.
 - Only the requester can **Roll** (or say `yes`) or **Cancel** (`no`). Rolling uses your turn.
-- Each player gets **3 rolls** per game. Cancelled or vetoed gambles don't count, and don't use your turn.
+- Each player gets **5 rolls** per game. Cancelled or vetoed gambles don't count, and don't use your turn.
 - The opponent gets **1 veto** per game.
-- Dice can't touch kings, deliver checkmate or stalemate, or leave your own king in check.
+- Dice can't touch kings, deliver checkmate (or set one up within two moves), stalemate, or leave your own king in check.
+- Gambles can be pointless (they just get easy odds) or random ("a random one of their pieces becomes a pawn");
+  random outcomes are priced on their average and picked when the die is rolled.
 - Dice games have their own stats: `@ChessBetterBot leaderboard dice`, and `stats` shows gambles won.
 
 Dice mode needs an [Anthropic API key](https://console.anthropic.com/) (`Anthropic:ApiKey`); everything else
 works without one.
+
+## Chess960
+
+`@ChessBetterBot chess960 @user` (also `960`, `fischerrandom`, or `challenge @user 960`) starts a game of
+[Fischer Random](https://en.wikipedia.org/wiki/Fischer_random_chess): normal rules, but the back-rank pieces start
+in one of 960 shuffled orders, mirrored for both sides. It takes opening preparation out of the game.
+
+- The challenge card shows the position number and back rank. Every shuffle except #518 (the normal start) can come up.
+- Bishops are always on opposite colours and the king always starts between the rooks.
+- Castle with `O-O` / `O-O-O`. The king ends on g or c and its rook on f or d, as in normal chess, however far they
+  start from there. Every square either piece crosses must be empty, and the king can't start in, pass through, or
+  land in check. Moves are stored king-onto-rook (`b1h1`); typing the king's destination (`b1g1`) also works,
+  and if that could also be a plain king step the bot asks you to say `O-O` or `Kg1`.
+- Finished games are imported to lichess as Chess960 (the PGN carries the starting FEN).
+- `@ChessBetterBot leaderboard 960` has its own table; `stats` shows Chess960 results separately.
+
+## Three-Player Chess
+
+`@ChessBetterBot threeplayerchess @user @user` challenges two people to a three-way game on a triangular board
+(the 96-square "Yalta" layout, drawn as a triangle with its corners cut off). Seats are drawn at random and
+everyone has to accept.
+
+- Each player has the usual 8×4 half: R N B Q K B N R with pawns in front. Squares are named with files a–l and
+  ranks 1–12: White has a–h on ranks 1–4, Black l–i and d–a on ranks 8–5, Red h–e and i–l on ranks 12–9.
+- Turns go White → Black → Red. Files and diagonals carry on through the middle into the other halves, so the
+  a–d files join White to Black, e–h join White to Red, and i–l join Black to Red. A diagonal through the very
+  centre touches both other halves, so it can go either way (a bishop on d4 can head for e9 or i5).
+- Pawns head for the middle, then on to the back rank of whichever half they enter, and promote there to any
+  piece. The distance is the same eight ranks as in normal chess. There is no en passant.
+- Kings are never captured. If you're in check on your turn with no way out, you're checkmated: you're out and
+  your pieces leave the board. The last player standing wins.
+- A stalemated player passes their turn; once only two are left, stalemate is a draw. You can resign at any time,
+  and a draw needs everyone still playing to agree.
+- `@ChessBetterBot leaderboard 3p` ranks players by finishing place: 1 point for 1st, ½ for 2nd. Players who share
+  a place split the points for the places they cover.
+
+### With dice
+
+`@ChessBetterBot threeplayerdice @user @user` plays the same game with [ChessDiceRoll](#chessdiceroll) gambles.
+
+- Each player gets **5 rolls** and **1 veto**, and either opponent can veto a gamble.
+- **Odds:** a gamble's value to you is your own change in material minus the *average* change for your opponents
+  still in the game. Costing one opponent a queen helps the third player too, so it's worth half a queen to you;
+  gaining a queen yourself is worth a whole one. With one opponent left, this is the same as two-player dice.
+- Dice can't touch kings, checkmate anyone, leave an opponent with no legal move, or leave your own king in check.
+  (The two-player rule against setting up a mate in two isn't checked here.)
+- `@ChessBetterBot leaderboard 3pdice` has its own table, with gambles won.
 
 ## Project layout
 

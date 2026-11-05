@@ -28,6 +28,18 @@ public enum CastlingRights
     All = WhiteKingSide | WhiteQueenSide | BlackKingSide | BlackQueenSide,
 }
 
+/// <summary>
+/// The files the king and the castling rooks start on, the same for both sides. Normal chess is e, h and a;
+/// Chess960 can use any files with the king between the rooks. Castling always ends with the king on g or c
+/// and the rook beside it on f or d.
+/// </summary>
+public readonly record struct CastlingLayout(int KingFile, int KingRookFile, int QueenRookFile)
+{
+    public static readonly CastlingLayout Standard = new(4, 7, 0);
+
+    public bool IsStandard => this == Standard;
+}
+
 public readonly record struct Piece(PieceType Type, PieceColor Color)
 {
     public static readonly Piece Empty = new(PieceType.None, PieceColor.White);

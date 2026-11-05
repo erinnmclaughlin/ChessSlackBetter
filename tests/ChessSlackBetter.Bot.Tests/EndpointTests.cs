@@ -42,6 +42,19 @@ public sealed class EndpointTests : IClassFixture<EndpointTests.Factory>
         Assert.Equal(HttpStatusCode.BadRequest, bad.StatusCode);
     }
 
+    [Fact]
+    public async Task Serves_three_player_board_images()
+    {
+        using var client = _factory.CreateClient();
+        var pos = Uri.EscapeDataString(Chess.ThreePlayer.TriPosition.Start.ToCode());
+        var response = await client.GetAsync($"/board3.png?pos={pos}&hl=d2,d4&pov=r");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("image/png", response.Content.Headers.ContentType?.MediaType);
+
+        var bad = await client.GetAsync("/board3.png?pos=nonsense");
+        Assert.Equal(HttpStatusCode.BadRequest, bad.StatusCode);
+    }
+
     private async Task<HttpResponseMessage> PostSigned(string path, string body, string contentType)
     {
         using var client = _factory.CreateClient();

@@ -48,6 +48,7 @@ public static class Database
         // Columns added after the first release; older databases get them here.
         AddColumnIfMissing(connection, "games", "mode", "TEXT NOT NULL DEFAULT 'Standard'");
         AddColumnIfMissing(connection, "games", "dice", "TEXT");
+        AddColumnIfMissing(connection, "games", "start_position", "INTEGER");
 
         // One row per Slack user who has been in a game or set a preference. Players from games saved before this
         // table existed are backfilled here, first seen at their earliest game.

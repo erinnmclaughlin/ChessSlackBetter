@@ -38,17 +38,21 @@ public sealed record PlayedMove(Move Move, string San, IReadOnlyList<SquareEdit>
     public string ToToken() => Edits is null ? Move.ToUci() : DicePrefix + string.Join(',', Edits);
 }
 
-/// <summary>A game from the standard starting position: its moves and how (or whether) it ended.</summary>
+/// <summary>A game from a starting position (normally the standard one): its moves and how (or whether) it ended.</summary>
 public sealed class Game
 {
     private readonly List<PlayedMove> _moves = [];
     private readonly List<string> _repetitionKeys = [];
 
-    public Game()
+    /// <param name="start">Defaults to the standard starting position; Chess960 games pass theirs.</param>
+    public Game(Position? start = null)
     {
-        Current = Position.Start;
+        Start = start ?? Position.Start;
+        Current = Start;
         _repetitionKeys.Add(Current.RepetitionKey());
     }
+
+    public Position Start { get; }
 
     public Position Current { get; private set; }
 
@@ -63,14 +67,14 @@ public sealed class Game
     public bool IsOver => Outcome != GameOutcome.Ongoing;
 
     /// <summary>Rebuilds a game from stored tokens (see <see cref="PlayedMove.ToToken"/>), e.g. "e2e4", "dice:e4=B".</summary>
-    public static Game Replay(IEnumerable<string> tokens)
+    public static Game Replay(IEnumerable<string> tokens, Position? start = null)
     {
-        var game = new Game();
+        var game = new Game(start);
         foreach (var token in tokens)
         {
             string? error;
             var ok = token.StartsWith(PlayedMove.DicePrefix, StringComparison.Ordinal)
-                ? game.TryApplyEdits(token[PlayedMove.DicePrefix.Length..].Split(',').Select(SquareEdit.Parse).ToList(), out error)
+                ? game.TryApplyEdits(token[PlayedMove.DicePrefix.Length..].Split(',', StringSplitOptions.RemoveEmptyEntries).Select(SquareEdit.Parse).ToList(), out error)
                 : game.TryPlay(token, out _, out error);
             if (!ok)
             {
@@ -84,17 +88,11 @@ public sealed class Game
     /// <summary>
     /// Checks whether board edits may replace the current player's move: kings can't be touched or created,
     /// pawns can't land on the back ranks, the player can't leave themself in check, and the opponent must
-    /// still have a legal move (no checkmate or stalemate by dice).
+    /// still have a legal move (no checkmate or stalemate by dice). No edits at all is fine: the turn just passes.
     /// </summary>
     public static bool ValidateEdits(Position position, IReadOnlyList<SquareEdit> edits, [NotNullWhen(false)] out string? error)
     {
         error = null;
-        if (edits.Count == 0)
-        {
-            error = "Nothing on the board would change.";
-            return false;
-        }
-
         foreach (var edit in edits)
         {
             if (position[edit.Square].Type == PieceType.King || edit.Piece.Type == PieceType.King)
@@ -144,7 +142,7 @@ public sealed class Game
             return false;
         }
 
-        _moves.Add(new PlayedMove(default, "{dice " + string.Join(' ', edits) + "}", edits));
+        _moves.Add(new PlayedMove(default, "{" + string.Join(' ', edits.Select(e => e.ToString()).Prepend("dice")) + "}", edits));
         Current = Current.WithEdits(edits);
         _repetitionKeys.Add(Current.RepetitionKey());
         DetectAutomaticEnd();
@@ -219,6 +217,12 @@ public sealed class Game
         foreach (var (key, value) in headers ?? new Dictionary<string, string>())
         {
             sb.Append('[').Append(key).Append(" \"").Append(value.Replace("\\", "\\\\").Replace("\"", "\\\"")).AppendLine("\"]");
+        }
+
+        if (Start.ToFen() != Position.StartFen)
+        {
+            sb.AppendLine("[SetUp \"1\"]");
+            sb.Append("[FEN \"").Append(Start.ToFen()).AppendLine("\"]");
         }
 
         sb.Append("[Result \"").Append(ResultString).AppendLine("\"]");

@@ -6,7 +6,7 @@ using Svg.Skia;
 namespace ChessSlackBetter.Bot.Rendering;
 
 /// <summary>Draws a position as a PNG, lichess-style: themed squares and pieces, last move and check highlighted.</summary>
-public sealed class BoardRenderer : IDisposable
+public sealed partial class BoardRenderer : IDisposable
 {
     public const int SquareSize = 64;
     public const int BoardSize = SquareSize * 8;

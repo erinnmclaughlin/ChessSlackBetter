@@ -4,6 +4,7 @@ using ChessSlackBetter.Bot.Games;
 using ChessSlackBetter.Bot.Slack;
 using ChessSlackBetter.Bot.Users;
 using ChessSlackBetter.Chess;
+using ChessSlackBetter.Chess.ThreePlayer;
 
 namespace ChessSlackBetter.Bot.Tests;
 
@@ -87,6 +88,28 @@ public sealed class InMemoryUserRepository : IUserRepository
     }
 }
 
+public sealed class InMemoryThreePlayerRepository : IThreePlayerRepository
+{
+    private readonly Dictionary<(string, string), ThreePlayerRecord> _games = new();
+
+    public Task<ThreePlayerRecord?> GetAsync(string channelId, string threadTs, CancellationToken ct = default) =>
+        Task.FromResult(_games.GetValueOrDefault((channelId, threadTs)));
+
+    public Task SaveAsync(ThreePlayerRecord game, CancellationToken ct = default)
+    {
+        _games[(game.ChannelId, game.ThreadTs)] = game;
+        return Task.CompletedTask;
+    }
+
+    public Task<IReadOnlyList<ThreePlayerRecord>> GetOpenGamesAsync(string userId, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<ThreePlayerRecord>>(_games.Values
+            .Where(g => g.IsPlayer(userId) && g.State is GameState.Challenged or GameState.Active)
+            .ToList());
+
+    public Task<IReadOnlyList<ThreePlayerRecord>> GetFinishedGamesAsync(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<ThreePlayerRecord>>(_games.Values.Where(g => g.State == GameState.Finished).ToList());
+}
+
 public sealed class FakeDiceJudge : IDiceJudge
 {
     public DiceRuling Ruling { get; set; } = Accept(
@@ -96,9 +119,18 @@ public sealed class FakeDiceJudge : IDiceJudge
     public List<string> Requests { get; } = [];
 
     public static DiceRuling Accept(DiceEffect[] success, DiceEffect[] failure, double successBonus = 0, double failureBonus = 0) =>
+        AcceptOptions([new DiceOption(success, "")], [new DiceOption(failure, "")], successBonus, failureBonus);
+
+    public static DiceRuling AcceptOptions(DiceOption[] success, DiceOption[] failure, double successBonus = 0, double failureBonus = 0) =>
         new(true, "ok", success, failure, "Your e4 pawn becomes a bishop", "Your e4 pawn is removed", successBonus, failureBonus, "Simple material trade.");
 
     public Task<DiceRuling> JudgeAsync(Position position, PieceColor requester, string request, CancellationToken ct = default)
+    {
+        Requests.Add(request);
+        return Task.FromResult(Ruling);
+    }
+
+    public Task<DiceRuling> JudgeThreePlayerAsync(TriPosition position, TriColor requester, string request, CancellationToken ct = default)
     {
         Requests.Add(request);
         return Task.FromResult(Ruling);
@@ -110,6 +142,10 @@ public sealed class FakeDiceRoller : IDiceRoller
     public int Next { get; set; } = 20;
 
     public int RollD20() => Next;
+
+    public int NextPick { get; set; }
+
+    public int Pick(int count) => Math.Min(NextPick, count - 1);
 }
 
 public sealed class FakeAnalysisLinks : IAnalysisLinks

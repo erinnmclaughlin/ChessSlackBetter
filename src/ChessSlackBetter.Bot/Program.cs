@@ -5,6 +5,7 @@ using ChessSlackBetter.Bot.Rendering;
 using ChessSlackBetter.Bot.Slack;
 using ChessSlackBetter.Bot.Users;
 using ChessSlackBetter.Chess;
+using ChessSlackBetter.Chess.ThreePlayer;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -18,6 +19,7 @@ builder.Services.AddHttpClient<ISlackApi, SlackApiClient>();
 builder.Services.AddHttpClient<IAnalysisLinks, LichessClient>(http => http.Timeout = TimeSpan.FromSeconds(10));
 builder.Services.AddSingleton<IGameRepository, SqliteGameRepository>();
 builder.Services.AddSingleton<IUserRepository, SqliteUserRepository>();
+builder.Services.AddSingleton<IThreePlayerRepository, SqliteThreePlayerRepository>();
 builder.Services.AddSingleton<BoardRenderer>();
 builder.Services.Configure<AnthropicOptions>(builder.Configuration.GetSection(AnthropicOptions.Section));
 builder.Services.AddSingleton<IDiceJudge, ClaudeDiceJudge>();
@@ -67,6 +69,33 @@ app.MapGet("/board.png", (string fen, string? last, string? hl, string? pov, str
     var perspective = pov == "b" ? PieceColor.Black : PieceColor.White;
     response.Headers.CacheControl = "public, max-age=31536000, immutable";
     return Results.File(renderer.RenderPng(position, highlights, perspective, BoardTheme.Find(theme), PieceSet.Find(pieces)), "image/png");
+});
+
+// Three-player boards. `pos` is a TriPosition code; `hl` is a comma-separated list of squares to highlight.
+app.MapGet("/board3.png", (string pos, string? hl, string? pov, BoardRenderer renderer, HttpResponse response) =>
+{
+    TriPosition position;
+    try
+    {
+        position = TriPosition.FromCode(pos);
+    }
+    catch (FormatException)
+    {
+        return Results.BadRequest("Invalid position.");
+    }
+
+    var highlights = new HashSet<int>();
+    foreach (var name in (hl ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries))
+    {
+        if (TriSquare.TryParse(name, out var square))
+        {
+            highlights.Add(square);
+        }
+    }
+
+    var perspective = pov is { Length: 1 } && TriColors.FromLetter(pov[0]) is { } color ? color : TriColor.White;
+    response.Headers.CacheControl = "public, max-age=31536000, immutable";
+    return Results.File(renderer.RenderThreePlayerPng(position, highlights, perspective), "image/png");
 });
 
 app.Run();

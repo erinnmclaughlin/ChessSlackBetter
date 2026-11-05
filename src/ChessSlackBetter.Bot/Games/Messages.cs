@@ -19,7 +19,7 @@ public static class ActionIds
 public sealed record SlackContent(string Text, JsonArray Blocks);
 
 /// <summary>Builds the Block Kit payloads the bot posts.</summary>
-public static class Messages
+public static partial class Messages
 {
     public const string HelpText = """
         *ChessBetterBot* — play chess in a Slack thread.
@@ -41,30 +41,64 @@ public static class Messages
         • On your turn, instead of moving, describe a gamble with a reward *and* a penalty:
           `@ChessBetterBot roll turn my e4 pawn into a bishop, if I fail I lose the pawn`
         • The bot works out the fair d20 roll; you then press *Roll* (or say `yes`) or *Cancel* (`no`)
-        • Rolling uses your turn. 3 rolls per player per game; cancelled rolls don't count
-        • Your opponent can veto one gamble per game. Dice can't touch kings or deliver checkmate
+        • Rolling uses your turn. 5 rolls per player per game; cancelled rolls don't count
+        • Your opponent can veto one gamble per game. Dice can't touch kings or set up checkmate within two moves
+        • Random gambles work too, e.g. `turn a random one of their pieces into a pawn, if I fail I lose my knight`
+
+        *Chess960* :twisted_rightwards_arrows:
+        • `@ChessBetterBot chess960 @someone` (or `challenge @someone 960`) — Fischer Random: normal rules, but the
+          back-rank pieces start in one of 960 shuffled orders (the same for both sides), so no memorised openings
+        • Bishops are always on opposite colours and the king starts somewhere between the rooks
+        • Castle with `O-O` / `O-O-O`. The king ends on g or c and the rook beside it on f or d, as in normal chess;
+          the squares between must be empty and the king can't pass through check. Typing the king's destination
+          (e.g. `b1g1`) works too
+
+        *Three-Player Chess* :small_red_triangle:
+        • `@ChessBetterBot threeplayerchess @someone @someone` — seats are random; both have to accept
+        • A triangular board for three: files a–l, ranks 1–12. Turns go white → black → red
+        • Files and diagonals carry on through the middle into the other players' halves. A diagonal through
+          the very centre can go either way, e.g. a bishop on d4 can head for e9 or i5
+        • Pawns head for the middle, then on to the back rank of whichever half they enter, and promote there
+        • Checkmate someone on their turn and they're out; their pieces leave the board. Last player standing wins
+        • No en passant, and kings are never captured. A stalemated player passes; with two left it's a draw
+        • You can resign at any time. A draw needs everyone still playing to agree
+        • `@ChessBetterBot threeplayerdice @someone @someone` — the same, plus ChessDiceRoll gambles. Each player gets
+          5 rolls and 1 veto, and either opponent can veto a gamble. Costing one opponent a piece counts half as much
+          as gaining it yourself, since it helps the third player too
 
         *Anywhere*
         • `@ChessBetterBot games` — your open games · `@ChessBetterBot stats [@someone]`
-        • `@ChessBetterBot leaderboard` · `@ChessBetterBot leaderboard dice`
+        • `@ChessBetterBot leaderboard` · `@ChessBetterBot leaderboard dice` · `@ChessBetterBot leaderboard 960` · `@ChessBetterBot leaderboard 3p` · `@ChessBetterBot leaderboard 3pdice`
         • `@ChessBetterBot theme` · `@ChessBetterBot pieces` — pick your board colours and piece set, shown when it's your turn
         """;
 
-    public static SlackContent ChallengeCard(string challengerId, string opponentId, string whiteId, GameMode mode = GameMode.Standard)
+    public const string Chess960Name = "Chess960";
+
+    public static SlackContent ChallengeCard(
+        string challengerId, string opponentId, string whiteId, GameMode mode = GameMode.Standard, int? chess960Number = null)
     {
         var colour = challengerId == whiteId ? "white" : "black";
-        var dice = mode == GameMode.DiceRoll;
-        var text = dice
-            ? $"<@{challengerId}> has challenged <@{opponentId}> to a game of *ChessDiceRoll*!"
-            : $"<@{challengerId}> has challenged <@{opponentId}> to a game of chess!";
+        var (icon, gameName) = mode switch
+        {
+            GameMode.DiceRoll => (":game_die:", "*ChessDiceRoll*"),
+            GameMode.Chess960 => (":twisted_rightwards_arrows:", $"*{Chess960Name}*"),
+            _ => (":chess_pawn:", "chess"),
+        };
+        var text = $"<@{challengerId}> has challenged <@{opponentId}> to a game of {gameName}!";
         var blocks = new JsonArray
         {
-            Section($"{(dice ? ":game_die:" : ":chess_pawn:")} {text}\n<@{challengerId}> will play *{colour}*."),
+            Section($"{icon} {text}\n<@{challengerId}> will play *{colour}*."),
         };
-        if (dice)
+        if (mode == GameMode.DiceRoll)
         {
             blocks.Add(Context("Normal chess, except on your turn you can gamble on a d20 instead of moving. " +
                                $"{DiceLimitsText}. `@ChessBetterBot help` for the rules."));
+        }
+
+        if (chess960Number is { } number)
+        {
+            blocks.Add(Context($"Starting position *#{number}*: `{Chess960BackRankText(number)}`. " +
+                               "Normal rules, but the back-rank pieces are shuffled, so opening theory is out the window."));
         }
 
         blocks.Add(Actions(
@@ -73,6 +107,9 @@ public static class Messages
         blocks.Add(Context($"<@{opponentId}>, you can also reply in the thread with `@ChessBetterBot accept` or `@ChessBetterBot decline`."));
         return new SlackContent(text, blocks);
     }
+
+    /// <summary>White's back rank from a to h, spaced out, e.g. "B N R K Q N B R".</summary>
+    private static string Chess960BackRankText(int number) => string.Join(' ', Chess960.BackRank(number).ToCharArray());
 
     private static string DiceLimitsText =>
         $"{Dice.DiceLimits.RollsPerPlayer} rolls and {Dice.DiceLimits.VetoesPerPlayer} veto per player";
@@ -84,6 +121,10 @@ public static class Messages
         if (record.Mode == GameMode.DiceRoll)
         {
             players = $":game_die: *ChessDiceRoll* · {players}";
+        }
+        else if (record.Chess960Number is { } number)
+        {
+            players = $":twisted_rightwards_arrows: *{Chess960Name}* #{number} · {players}";
         }
 
         var text = record.State switch
@@ -129,6 +170,11 @@ public static class Messages
                 $":game_die: Rolls left: <@{record.WhiteId}> {dice.RollsLeft(record.WhiteId)} · <@{record.BlackId}> {dice.RollsLeft(record.BlackId)}" +
                 $"  ·  Vetoes left: <@{record.WhiteId}> {dice.VetoesLeft(record.WhiteId)} · <@{record.BlackId}> {dice.VetoesLeft(record.BlackId)}\n" +
                 "Move, or gamble: `@ChessBetterBot roll <what you want>, if I fail <penalty>`"));
+        }
+        else if (record.Chess960Number is { } number)
+        {
+            blocks.Add(Context($":twisted_rightwards_arrows: {Chess960Name} #{number}. Castle with `O-O` / `O-O-O`: the king always ends on g or c " +
+                               "and the rook beside it on f or d, however far they start from there."));
         }
         else
         {
@@ -177,9 +223,9 @@ public static class Messages
         return new SlackContent(text, [Section(text)]);
     }
 
-    public static string DiceRollOutcome(Dice.DiceProposal proposal, int roll, bool success) => success
-        ? $":tada: Rolled *{roll}* (needed {proposal.Target}+). *Success!* {proposal.SuccessSummary}."
-        : $":skull: Rolled *{roll}* (needed {proposal.Target}+). *Failed.* {proposal.FailureSummary}.";
+    public static string DiceRollOutcome(Dice.DiceProposal proposal, int roll, bool success, string summary) => success
+        ? $":tada: Rolled *{roll}* (needed {proposal.Target}+). *Success!* {summary}."
+        : $":skull: Rolled *{roll}* (needed {proposal.Target}+). *Failed.* {summary}.";
 
     public static SlackContent GameOver(GameRecord record, Game game, string pgn, string analysisUrl, string? publicBaseUrl)
     {
