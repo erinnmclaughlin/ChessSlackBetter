@@ -32,15 +32,20 @@ public sealed partial class BoardRenderer
     /// <param name="position">The position to draw.</param>
     /// <param name="highlights">Squares to highlight, usually the last move's from and to.</param>
     /// <param name="perspective">The side whose back rank is along the bottom.</param>
-    public byte[] RenderThreePlayerPng(TriPosition position, IReadOnlyCollection<int> highlights, TriColor perspective)
+    /// <param name="theme">Square colours; <see cref="BoardTheme.Default"/> when null.</param>
+    /// <param name="pieces">Piece images; <see cref="PieceSet.Default"/> when null.</param>
+    public byte[] RenderThreePlayerPng(
+        TriPosition position, IReadOnlyCollection<int> highlights, TriColor perspective, BoardTheme? theme = null, PieceSet? pieces = null)
     {
+        theme ??= BoardTheme.Default;
+        pieces ??= PieceSet.Default;
         using var surface = SKSurface.Create(new SKImageInfo(ThreePlayerWidth, ThreePlayerHeight));
         var canvas = surface.Canvas;
         canvas.Clear(Background);
 
         var layout = new TriangleLayout(perspective);
         using var fill = new SKPaint { IsAntialias = true };
-        using var edge = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = 1, Color = Dark.WithAlpha(120) };
+        using var edge = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = 1, Color = theme.Dark.WithAlpha(120) };
         using var font = new SKFont(SKTypeface.Default, 13) { Embolden = true };
         using var label = new SKPaint { IsAntialias = true, Color = LabelColor };
         using var redPieces = new SKPaint { ColorFilter = RedFilter() };
@@ -52,7 +57,7 @@ public sealed partial class BoardRenderer
             var corners = layout.Corners(sq);
             using var path = Polygon(corners);
             var light = TriSquare.IsLight(sq);
-            fill.Color = highlights.Contains(sq) ? (light ? LastMoveLight : LastMoveDark) : (light ? Light : Dark);
+            fill.Color = highlights.Contains(sq) ? (light ? theme.LastMoveLight : theme.LastMoveDark) : (light ? theme.Light : theme.Dark);
             canvas.DrawPath(path, fill);
             canvas.DrawPath(path, edge);
 
@@ -77,7 +82,7 @@ public sealed partial class BoardRenderer
             DrawThreePlayerLabels(canvas, font, label, layout, sq, corners);
 
             var piece = position[sq];
-            if (!piece.IsEmpty && _pieces[new Piece(piece.Type, piece.Color == TriColor.White ? PieceColor.White : PieceColor.Black)].Picture is { } picture)
+            if (!piece.IsEmpty && _pieces[(pieces, new Piece(piece.Type, piece.Color == TriColor.White ? PieceColor.White : PieceColor.Black))].Picture is { } picture)
             {
                 var pieceSize = size * 0.92f;
                 var scale = pieceSize / picture.CullRect.Width;

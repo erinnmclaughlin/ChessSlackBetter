@@ -1,6 +1,7 @@
 using System.Text;
 using ChessSlackBetter.Bot.Dice;
 using ChessSlackBetter.Bot.Slack;
+using ChessSlackBetter.Bot.Users;
 using ChessSlackBetter.Chess;
 using ChessSlackBetter.Chess.ThreePlayer;
 using Microsoft.Extensions.Options;
@@ -16,6 +17,7 @@ public sealed record IncomingAction(string ActionId, string UserId, string Chann
 public sealed partial class ChessBotService(
     ISlackApi slack,
     IGameRepository games,
+    IUserRepository users,
     IThreePlayerRepository threePlayerGames,
     IAnalysisLinks analysis,
     IDiceJudge judge,
@@ -65,6 +67,12 @@ public sealed partial class ChessBotService(
                 return;
             case LeaderboardCommand leaderboard:
                 await LeaderboardAsync(message, leaderboard.Mode, ct);
+                return;
+            case ThemeCommand theme:
+                await ThemeAsync(message, theme.Name, ct);
+                return;
+            case PiecesCommand pieces:
+                await PiecesAsync(message, pieces.Name, ct);
                 return;
         }
 
@@ -700,7 +708,9 @@ public sealed partial class ChessBotService(
 
     private async Task PostBoardAsync(GameRecord record, Game game, CancellationToken ct)
     {
-        var board = Messages.Board(record, game, Options.PublicBaseUrl);
+        // The board is drawn in the theme and pieces of whoever has to move next.
+        var style = await users.GetPreferencesAsync(record.PlayerFor(game.Current.SideToMove), ct);
+        var board = Messages.Board(record, game, Options.PublicBaseUrl, style);
         await slack.PostMessageAsync(new SlackMessage(record.ChannelId, board.Text, board.Blocks, record.ThreadTs), ct);
     }
 
@@ -769,6 +779,47 @@ public sealed partial class ChessBotService(
             GameMode.Chess960 => LichessClient.AnalysisPositionUrl(game.Current.ToFen(), "chess960"),
             _ => LichessClient.AnalysisBoardUrl(game.MovesSan()),
         };
+
+    private Task ThemeAsync(IncomingMessage message, string? name, CancellationToken ct) =>
+        PreferenceAsync(message, name, "theme", "board theme",
+            Rendering.BoardTheme.All.Select(t => t.Name).ToList(), Rendering.BoardTheme.Default.Name,
+            p => p.Theme, users.SetThemeAsync, ct);
+
+    private Task PiecesAsync(IncomingMessage message, string? name, CancellationToken ct) =>
+        PreferenceAsync(message, name, "pieces", "piece set",
+            Rendering.PieceSet.All.Select(s => s.Name).ToList(), Rendering.PieceSet.Default.Name,
+            p => p.Pieces, users.SetPiecesAsync, ct);
+
+    /// <summary>Shows a board preference (when <paramref name="name"/> is null) or sets it to one of <paramref name="choices"/>.</summary>
+    private async Task PreferenceAsync(
+        IncomingMessage message,
+        string? name,
+        string command,
+        string label,
+        IReadOnlyList<string> choices,
+        string defaultChoice,
+        Func<UserPreferences, string?> current,
+        Func<string, string, CancellationToken, Task> save,
+        CancellationToken ct)
+    {
+        var options = string.Join(", ", choices.Select(c => $"`{c}`"));
+        if (name is null)
+        {
+            var mine = current(await users.GetPreferencesAsync(message.UserId, ct)) ?? defaultChoice;
+            await EphemeralAsync(message, $"Your {label} is *{mine}*. Change it with `@ChessBetterBot {command} <name>`: {options}.", ct);
+            return;
+        }
+
+        var choice = choices.FirstOrDefault(c => c.Equals(name, StringComparison.OrdinalIgnoreCase));
+        if (choice is null)
+        {
+            await EphemeralAsync(message, $"There's no `{name}` {label}. Pick one of {options}.", ct);
+            return;
+        }
+
+        await save(message.UserId, choice, ct);
+        await EphemeralAsync(message, $"Your {label} is now *{choice}*. You'll see it on the board whenever it's your turn.", ct);
+    }
 
     private Task SaveAsync(GameRecord record, CancellationToken ct)
     {
